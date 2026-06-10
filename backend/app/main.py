@@ -8,6 +8,8 @@ from typing import Optional
 import tempfile
 import os
 import shutil
+import csv
+import io
 
 from .database import engine, get_db, Base
 from .models import Card, Transaction, CardMonthlyUsage, Upload
@@ -183,6 +185,66 @@ async def upload_screenshot(
     db.commit()
 
     return {"parsed": len(parsed), "saved": saved}
+
+
+# ── CSV upload ────────────────────────────────────────────────────────────
+
+VALID_TYPES = {"sell_usdt", "buy_usdt", "deposit", "withdrawal", "cancel_order", "internal", "other"}
+
+@app.post("/api/upload-csv")
+async def upload_csv(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    content = await file.read()
+    text = content.decode("utf-8-sig")  # handle BOM from Excel
+    reader = csv.DictReader(io.StringIO(text))
+
+    saved = 0
+    errors = []
+
+    for i, row in enumerate(reader, start=2):  # row 1 is header
+        tx_type = row.get("type", "").strip()
+        date_str = row.get("date", "").strip()
+        usdt_raw = row.get("usdt_amount", "").strip()
+        uah_raw = row.get("uah_amount", "").strip()
+        price_raw = row.get("price_per_usdt", "").strip()
+        counterparty = row.get("counterparty", "").strip() or None
+
+        if tx_type not in VALID_TYPES:
+            errors.append(f"Row {i}: unknown type '{tx_type}'")
+            continue
+
+        try:
+            date = datetime.strptime(date_str, "%Y-%m-%d %H:%M")
+        except ValueError:
+            errors.append(f"Row {i}: bad date '{date_str}' (expected YYYY-MM-DD HH:MM)")
+            continue
+
+        usdt = float(usdt_raw) if usdt_raw else None
+        uah = float(uah_raw) if uah_raw else None
+        price = float(price_raw) if price_raw else None
+
+        # Deduplicate: same type + date + usdt_amount
+        exists = db.query(Transaction).filter(
+            Transaction.type == tx_type,
+            Transaction.date == date,
+            Transaction.usdt_amount == usdt,
+        ).first()
+        if exists:
+            continue
+
+        tx = Transaction(
+            type=tx_type,
+            date=date,
+            usdt_amount=usdt,
+            uah_amount=uah,
+            price_per_usdt=price,
+            counterparty=counterparty,
+            screenshot_source="csv",
+        )
+        db.add(tx)
+        saved += 1
+
+    db.commit()
+    return {"saved": saved, "errors": errors}
 
 
 # ── Dashboard stats ────────────────────────────────────────────────────────
