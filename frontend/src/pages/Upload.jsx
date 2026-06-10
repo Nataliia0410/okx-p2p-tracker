@@ -1,12 +1,10 @@
 import React, { useState, useRef } from 'react'
 import { api } from '../api'
+import { useTheme } from '../ThemeContext'
 
 const VALID_TYPES = ['sell_usdt', 'buy_usdt', 'deposit', 'withdrawal', 'cancel_order', 'internal', 'other']
 
-const now = () => {
-  const d = new Date()
-  return d.toISOString().slice(0, 16)
-}
+const now = () => new Date().toISOString().slice(0, 16)
 
 const CSV_TEMPLATE = `type,date,usdt_amount,uah_amount,price_per_usdt,counterparty
 sell_usdt,2026-06-08 07:07,21.64,1000,46.19,elektrod
@@ -18,31 +16,23 @@ function downloadTemplate() {
   const blob = new Blob([CSV_TEMPLATE], { type: 'text/csv' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
-  a.href = url
-  a.download = 'okx_template.csv'
-  a.click()
+  a.href = url; a.download = 'okx_template.csv'; a.click()
   URL.revokeObjectURL(url)
 }
 
-function ManualForm() {
+function ManualForm({ theme }) {
   const [form, setForm] = useState({
-    type: 'sell_usdt',
-    date: now(),
-    usdt_amount: '',
-    uah_amount: '',
-    price_per_usdt: '',
-    counterparty: '',
+    type: 'sell_usdt', date: now(),
+    usdt_amount: '', uah_amount: '', price_per_usdt: '', counterparty: '',
   })
-  const [manualResult, setManualResult] = useState(null)
-  const [manualError, setManualError] = useState(null)
-  const [manualLoading, setManualLoading] = useState(false)
+  const [result, setResult] = useState(null)
+  const [error, setError] = useState(null)
+  const [loading, setLoading] = useState(false)
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
   const submit = async () => {
-    setManualLoading(true)
-    setManualResult(null)
-    setManualError(null)
+    setLoading(true); setResult(null); setError(null)
     try {
       const body = {
         type: form.type,
@@ -55,75 +45,69 @@ function ManualForm() {
       const r = await api('/api/transactions', { method: 'POST', body: JSON.stringify(body) })
       const data = await r.json()
       if (!r.ok) throw new Error(data.detail || 'Помилка')
-      setManualResult(`✅ Транзакцію додано (id: ${data.id})`)
+      setResult(`✅ Транзакцію додано (id: ${data.id})`)
       setForm(f => ({ ...f, usdt_amount: '', uah_amount: '', price_per_usdt: '', counterparty: '' }))
     } catch (e) {
-      setManualError(e.message)
+      setError(e.message)
     } finally {
-      setManualLoading(false)
+      setLoading(false)
     }
   }
 
-  const inputStyle = {
+  const inp = {
     width: '100%', padding: '8px 10px', borderRadius: 7,
-    border: '1px solid #334155', background: '#0f172a',
-    color: '#e2e8f0', fontSize: 13, outline: 'none', boxSizing: 'border-box',
+    border: `1px solid ${theme.border}`, background: theme.inputBg,
+    color: theme.text, fontSize: 13, outline: 'none', boxSizing: 'border-box',
   }
-  const labelStyle = { fontSize: 11, color: '#64748b', marginBottom: 4, display: 'block' }
+  const lbl = { fontSize: 11, color: theme.textDim, marginBottom: 4, display: 'block' }
 
   return (
-    <div style={{ background: '#1e293b', borderRadius: 12, padding: 24, marginTop: 24 }}>
-      <div style={{ fontWeight: 600, marginBottom: 16, color: '#e2e8f0', fontSize: 15 }}>
-        ✍️ Додати транзакцію вручну
-      </div>
+    <div style={{ background: theme.surface, borderRadius: 12, padding: 24, marginTop: 24, border: `1px solid ${theme.border}` }}>
+      <div style={{ fontWeight: 600, marginBottom: 16, color: theme.text, fontSize: 15 }}>✍️ Додати транзакцію вручну</div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12, marginBottom: 16 }}>
         <div>
-          <label style={labelStyle}>Тип</label>
-          <select value={form.type} onChange={e => set('type', e.target.value)} style={inputStyle}>
+          <label style={lbl}>Тип</label>
+          <select value={form.type} onChange={e => set('type', e.target.value)} style={inp}>
             {VALID_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
         </div>
         <div>
-          <label style={labelStyle}>Дата</label>
-          <input type="datetime-local" value={form.date} onChange={e => set('date', e.target.value)} style={inputStyle} />
+          <label style={lbl}>Дата</label>
+          <input type="datetime-local" value={form.date} onChange={e => set('date', e.target.value)} style={inp} />
         </div>
         <div>
-          <label style={labelStyle}>USDT</label>
-          <input type="number" step="any" placeholder="0.00" value={form.usdt_amount} onChange={e => set('usdt_amount', e.target.value)} style={inputStyle} />
+          <label style={lbl}>USDT</label>
+          <input type="number" step="any" placeholder="0.00" value={form.usdt_amount} onChange={e => set('usdt_amount', e.target.value)} style={inp} />
         </div>
         <div>
-          <label style={labelStyle}>UAH</label>
-          <input type="number" step="any" placeholder="0.00" value={form.uah_amount} onChange={e => set('uah_amount', e.target.value)} style={inputStyle} />
+          <label style={lbl}>UAH</label>
+          <input type="number" step="any" placeholder="0.00" value={form.uah_amount} onChange={e => set('uah_amount', e.target.value)} style={inp} />
         </div>
         <div>
-          <label style={labelStyle}>Курс ₴/USDT</label>
-          <input type="number" step="any" placeholder="0.0000" value={form.price_per_usdt} onChange={e => set('price_per_usdt', e.target.value)} style={inputStyle} />
+          <label style={lbl}>Курс ₴/USDT</label>
+          <input type="number" step="any" placeholder="0.0000" value={form.price_per_usdt} onChange={e => set('price_per_usdt', e.target.value)} style={inp} />
         </div>
         <div>
-          <label style={labelStyle}>Контрагент</label>
-          <input type="text" placeholder="ім'я" value={form.counterparty} onChange={e => set('counterparty', e.target.value)} style={inputStyle} />
+          <label style={lbl}>Контрагент</label>
+          <input type="text" placeholder="ім'я" value={form.counterparty} onChange={e => set('counterparty', e.target.value)} style={inp} />
         </div>
       </div>
-      <button
-        onClick={submit}
-        disabled={manualLoading}
-        style={{
-          padding: '9px 24px', borderRadius: 8, border: 'none',
-          background: manualLoading ? '#334155' : '#38bdf8',
-          color: manualLoading ? '#64748b' : '#0f1117',
-          fontWeight: 700, fontSize: 14, cursor: manualLoading ? 'not-allowed' : 'pointer',
-        }}
-      >
-        {manualLoading ? '⏳...' : 'Додати'}
+      <button onClick={submit} disabled={loading} style={{
+        padding: '9px 24px', borderRadius: 8, border: 'none',
+        background: loading ? theme.border : theme.accent,
+        color: loading ? theme.textDim : theme.accentText,
+        fontWeight: 700, fontSize: 14, cursor: loading ? 'not-allowed' : 'pointer',
+      }}>
+        {loading ? '⏳...' : 'Додати'}
       </button>
-      {manualResult && (
-        <div style={{ marginTop: 10, padding: 10, background: '#0f2a1a', borderRadius: 7, border: '1px solid #166534', color: '#4ade80', fontSize: 13 }}>
-          {manualResult}
+      {result && (
+        <div style={{ marginTop: 10, padding: 10, background: theme.surface2, borderRadius: 7, border: `1px solid ${theme.green}`, color: theme.green, fontSize: 13 }}>
+          {result}
         </div>
       )}
-      {manualError && (
-        <div style={{ marginTop: 10, padding: 10, background: '#2a0f0f', borderRadius: 7, border: '1px solid #991b1b', color: '#f87171', fontSize: 13 }}>
-          ❌ {manualError}
+      {error && (
+        <div style={{ marginTop: 10, padding: 10, background: theme.surface2, borderRadius: 7, border: `1px solid ${theme.red}`, color: theme.red, fontSize: 13 }}>
+          ❌ {error}
         </div>
       )}
     </div>
@@ -131,6 +115,7 @@ function ManualForm() {
 }
 
 export default function Upload() {
+  const { theme } = useTheme()
   const [file, setFile] = useState(null)
   const [result, setResult] = useState(null)
   const [error, setError] = useState(null)
@@ -139,9 +124,7 @@ export default function Upload() {
 
   const upload = async () => {
     if (!file) return
-    setLoading(true)
-    setResult(null)
-    setError(null)
+    setLoading(true); setResult(null); setError(null)
     const fd = new FormData()
     fd.append('file', file)
     try {
@@ -152,78 +135,69 @@ export default function Upload() {
     } catch (e) {
       setError(e.message)
     } finally {
-      setLoading(false)
-      setFile(null)
+      setLoading(false); setFile(null)
       if (inputRef.current) inputRef.current.value = ''
     }
   }
 
+  const cardStyle = { background: theme.surface, borderRadius: 12, padding: 20, border: `1px solid ${theme.border}` }
+
   return (
     <div>
-      <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 8, color: '#94a3b8' }}>
-        Завантажити CSV
-      </h2>
-      <p style={{ fontSize: 13, color: '#64748b', marginBottom: 24, lineHeight: 1.6 }}>
+      <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 8, color: theme.textMuted }}>Завантажити CSV</h2>
+      <p style={{ fontSize: 13, color: theme.textDim, marginBottom: 24, lineHeight: 1.6 }}>
         Скинь скріни OKX в чат Claude — він розпарсить і поверне готовий CSV.<br />
         Потім завантаж його тут.
       </p>
 
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
 
-        {/* Upload block */}
-        <div style={{ background: '#1e293b', borderRadius: 12, padding: 24, flex: '1 1 320px', maxWidth: 440 }}>
-
+        <div style={{ ...cardStyle, flex: '1 1 320px', maxWidth: 440 }}>
           <div
             onClick={() => inputRef.current?.click()}
             onDragOver={e => e.preventDefault()}
             onDrop={e => { e.preventDefault(); setFile(e.dataTransfer.files[0]) }}
             style={{
-              border: `2px dashed ${file ? '#4ade80' : '#334155'}`,
+              border: `2px dashed ${file ? theme.green : theme.border}`,
               borderRadius: 10, padding: '28px 20px', textAlign: 'center',
               cursor: 'pointer', marginBottom: 16,
             }}
           >
             <div style={{ fontSize: 28, marginBottom: 8 }}>📄</div>
             {file
-              ? <div style={{ color: '#4ade80', fontWeight: 600 }}>{file.name}</div>
-              : <div style={{ color: '#64748b', fontSize: 14 }}>
-                  Натисни або перетягни CSV файл
-                </div>
+              ? <div style={{ color: theme.green, fontWeight: 600 }}>{file.name}</div>
+              : <div style={{ color: theme.textDim, fontSize: 14 }}>Натисни або перетягни CSV файл</div>
             }
           </div>
 
           <input ref={inputRef} type="file" accept=".csv,text/csv" style={{ display: 'none' }}
             onChange={e => setFile(e.target.files[0])} />
 
-          <button
-            onClick={upload}
-            disabled={!file || loading}
-            style={{
-              width: '100%', padding: '11px', borderRadius: 8, border: 'none',
-              background: !file || loading ? '#334155' : '#38bdf8',
-              color: !file || loading ? '#64748b' : '#0f1117',
-              fontWeight: 700, fontSize: 15, cursor: !file || loading ? 'not-allowed' : 'pointer',
-            }}
-          >
+          <button onClick={upload} disabled={!file || loading} style={{
+            width: '100%', padding: '11px', borderRadius: 8, border: 'none',
+            background: !file || loading ? theme.border : theme.accent,
+            color: !file || loading ? theme.textDim : theme.accentText,
+            fontWeight: 700, fontSize: 15, cursor: !file || loading ? 'not-allowed' : 'pointer',
+          }}>
             {loading ? '⏳ Завантажую...' : 'Завантажити'}
           </button>
 
           {result && (
-            <div style={{ marginTop: 14, padding: 14, background: '#0f2a1a', borderRadius: 8, border: '1px solid #166534' }}>
-              <div style={{ color: '#4ade80', fontWeight: 600 }}>✅ Готово!</div>
-              <div style={{ color: '#86efac', fontSize: 13, marginTop: 4 }}>
+            <div style={{ marginTop: 14, padding: 14, background: theme.surface2, borderRadius: 8, border: `1px solid ${theme.green}` }}>
+              <div style={{ color: theme.green, fontWeight: 600 }}>✅ Готово!</div>
+              <div style={{ color: theme.green, fontSize: 13, marginTop: 4 }}>
                 Збережено нових записів: <strong>{result.saved}</strong>
               </div>
               {result.skipped > 0 && (
-                <div style={{ color: '#93c5fd', fontSize: 13, marginTop: 2 }}>
+                <div style={{ color: theme.accent, fontSize: 13, marginTop: 2 }}>
                   Пропущено дублів: <strong>{result.skipped}</strong>
                 </div>
               )}
               {result.errors?.length > 0 && (
                 <div style={{ marginTop: 8 }}>
-                  <div style={{ color: '#fbbf24', fontSize: 12, marginBottom: 4 }}>⚠️ Пропущені рядки:</div>
+                  <div style={{ color: '#f59e0b', fontSize: 12, marginBottom: 4 }}>⚠️ Пропущені рядки:</div>
                   {result.errors.map((e, i) => (
-                    <div key={i} style={{ color: '#fde68a', fontSize: 11 }}>{e}</div>
+                    <div key={i} style={{ color: '#f59e0b', fontSize: 11 }}>{e}</div>
                   ))}
                 </div>
               )}
@@ -231,44 +205,40 @@ export default function Upload() {
           )}
 
           {error && (
-            <div style={{ marginTop: 14, padding: 14, background: '#2a0f0f', borderRadius: 8, border: '1px solid #991b1b' }}>
-              <div style={{ color: '#f87171', fontWeight: 600 }}>❌ Помилка</div>
-              <div style={{ color: '#fca5a5', fontSize: 13, marginTop: 4 }}>{error}</div>
+            <div style={{ marginTop: 14, padding: 14, background: theme.surface2, borderRadius: 8, border: `1px solid ${theme.red}` }}>
+              <div style={{ color: theme.red, fontWeight: 600 }}>❌ Помилка</div>
+              <div style={{ color: theme.red, fontSize: 13, marginTop: 4 }}>{error}</div>
             </div>
           )}
         </div>
 
-        {/* Instructions block */}
         <div style={{ flex: '1 1 280px', maxWidth: 380 }}>
-          <div style={{ background: '#1e293b', borderRadius: 12, padding: 20, marginBottom: 16 }}>
-            <div style={{ fontWeight: 600, marginBottom: 12, color: '#e2e8f0' }}>Як підготувати CSV</div>
-            <ol style={{ paddingLeft: 18, fontSize: 13, color: '#94a3b8', lineHeight: 2 }}>
+          <div style={{ ...cardStyle, marginBottom: 16 }}>
+            <div style={{ fontWeight: 600, marginBottom: 12, color: theme.text }}>Як підготувати CSV</div>
+            <ol style={{ paddingLeft: 18, fontSize: 13, color: theme.textMuted, lineHeight: 2 }}>
               <li>Відкрий чат з Claude</li>
               <li>Скинь скріни з OKX (Ордера або Історія)</li>
-              <li>Напиши: <span style={{ color: '#38bdf8', fontFamily: 'monospace' }}>"розпарси і дай CSV"</span></li>
+              <li>Напиши: <span style={{ color: theme.accent, fontFamily: 'monospace' }}>"розпарси і дай CSV"</span></li>
               <li>Збережи отриманий CSV файл</li>
               <li>Завантаж його тут</li>
             </ol>
           </div>
 
-          <div style={{ background: '#1e293b', borderRadius: 12, padding: 20 }}>
-            <div style={{ fontWeight: 600, marginBottom: 10, color: '#e2e8f0' }}>Формат CSV</div>
-            <div style={{ fontFamily: 'monospace', fontSize: 11, color: '#64748b', lineHeight: 1.8, wordBreak: 'break-all' }}>
+          <div style={cardStyle}>
+            <div style={{ fontWeight: 600, marginBottom: 10, color: theme.text }}>Формат CSV</div>
+            <div style={{ fontFamily: 'monospace', fontSize: 11, color: theme.textDim, lineHeight: 1.8, wordBreak: 'break-all' }}>
               type, date, usdt_amount,<br />
               uah_amount, price_per_usdt,<br />
               counterparty
             </div>
-            <div style={{ marginTop: 12, fontSize: 12, color: '#475569' }}>
-              Типи: <span style={{ color: '#4ade80' }}>sell_usdt</span> · <span style={{ color: '#f87171' }}>buy_usdt</span> · <span style={{ color: '#a78bfa' }}>deposit</span>
+            <div style={{ marginTop: 12, fontSize: 12, color: theme.textDim }}>
+              Типи: <span style={{ color: theme.green }}>sell_usdt</span> · <span style={{ color: theme.red }}>buy_usdt</span> · <span style={{ color: theme.purple }}>deposit</span>
             </div>
-            <button
-              onClick={downloadTemplate}
-              style={{
-                marginTop: 14, width: '100%', padding: '8px', borderRadius: 7,
-                border: '1px solid #334155', background: 'transparent',
-                color: '#94a3b8', fontSize: 13, cursor: 'pointer',
-              }}
-            >
+            <button onClick={downloadTemplate} style={{
+              marginTop: 14, width: '100%', padding: '8px', borderRadius: 7,
+              border: `1px solid ${theme.border}`, background: 'transparent',
+              color: theme.textMuted, fontSize: 13, cursor: 'pointer',
+            }}>
               ⬇️ Скачати шаблон CSV
             </button>
           </div>
@@ -276,8 +246,7 @@ export default function Upload() {
 
       </div>
 
-      <ManualForm />
-
+      <ManualForm theme={theme} />
     </div>
   )
 }
