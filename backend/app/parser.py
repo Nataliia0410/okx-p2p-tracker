@@ -3,8 +3,6 @@ from google.genai import types
 import json
 import os
 from pathlib import Path
-from PIL import Image
-import io
 
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
@@ -59,12 +57,11 @@ ORDERS_PROMPT = """
 
 def parse_screenshot(image_path: str, screenshot_type: str) -> list[dict]:
     prompt = HISTORY_PROMPT if screenshot_type == "history" else ORDERS_PROMPT
+    suffix = Path(image_path).suffix.lower()
+    mime = "image/png" if suffix == ".png" else "image/jpeg"
 
     with open(image_path, "rb") as f:
         image_bytes = f.read()
-
-    suffix = Path(image_path).suffix.lower()
-    mime = "image/png" if suffix == ".png" else "image/jpeg"
 
     response = client.models.generate_content(
         model="gemini-2.0-flash",
