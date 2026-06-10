@@ -43,7 +43,10 @@
       "Bash(vercel ls *)",
       "Bash(vercel --prod)",
       "Bash(curl -s -X POST https://okx-p2p-backend.vercel.app/api/auth/login -H 'Content-Type: application/json' -d '{\"email\":\"nataliiamakarchuk0410@gmail.com\",\"password\":\"makarchuk0410\"}')",
-      "Bash(python3 -c ' *)"
+      "Bash(python3 -c ' *)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); [print\\(x.get\\('url'\\), x.get\\('created'\\), x.get\\('meta',{}\\).get\\('githubCommitSha',''\\)[:7]\\) for x in d.get\\('deployments',d\\)[:3]]\")",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\('backend/app/main.py'\\).read\\(\\)\\); print\\('OK'\\)\")",
+      "Bash(node --input-type=module)"
     ]
   }
 }

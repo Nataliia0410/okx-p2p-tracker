@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useCallback, useRef } from 'react'
 import { api } from '../api'
 import { useTheme } from '../ThemeContext'
 import { useLang } from '../LangContext'
@@ -208,6 +208,7 @@ function MonthlyTable({ data, onSalaryChange, onWithdrawalChange, theme, t, lang
               <th style={thStyle}>{t.colSpread}</th>
               <th style={thStyle}>{t.colProfit}</th>
               <th style={thStyle}>{t.colProfitPct}</th>
+              <th style={thStyle}>{t.colRoi}</th>
               <th style={thStyle}>{t.colWithdrawal}</th>
               <th style={thStyle}>{t.colBuySellCount}</th>
             </tr>
@@ -238,6 +239,9 @@ function MonthlyTable({ data, onSalaryChange, onWithdrawalChange, theme, t, lang
                   <td style={td(r.profit_pct > 0 ? theme.green : theme.textFaint)}>
                     {r.profit_pct ? fmtPct(r.profit_pct) : '—'}
                   </td>
+                  <td style={td(r.roi_pct > 0 ? theme.green : theme.textFaint)}>
+                    {r.roi_pct ? fmtPct(r.roi_pct) : '—'}
+                  </td>
                   <td style={{ ...td(), textAlign: 'right', padding: '9px 10px' }}>
                     <WithdrawalCell year={r.year} month={r.month} current={r.manual_withdrawal_usdt} onSaved={onWithdrawalChange} theme={theme} t={t} />
                   </td>
@@ -262,6 +266,7 @@ function MonthlyTable({ data, onSalaryChange, onWithdrawalChange, theme, t, lang
               </td>
               <td style={td(totals.profit_uah > 0 ? theme.green : theme.red)}>{fmtUah(totals.profit_uah)}</td>
               <td style={td(theme.green)}>{fmtPct(totals.profit_pct)}</td>
+              <td style={td(totals.roi_pct > 0 ? theme.green : theme.textFaint)}>{totals.roi_pct ? fmtPct(totals.roi_pct) : '—'}</td>
               <td style={td(theme.purple)}>{totals.manual_withdrawal_usdt > 0 ? `${totals.manual_withdrawal_usdt} USDT` : '—'}</td>
               <td style={td(theme.textDim)}>—</td>
             </tr>
@@ -288,6 +293,8 @@ export default function Dashboard() {
   const [txData,     setTxData]     = useState(null)
   const [txLoading,  setTxLoading]  = useState(true)
   const [page,       setPage]       = useState(1)
+  const [counterparties, setCounterparties] = useState(null)
+  const [cpOpen, setCpOpen] = useState(false)
   const LIMIT = 20
 
   const fetchStats = useCallback((from, to) => {
@@ -302,6 +309,11 @@ export default function Dashboard() {
       .then(r => r.json()).then(setMonthly).catch(() => {})
   }, [])
 
+  const fetchCounterparties = useCallback(() => {
+    api('/api/analytics/counterparties')
+      .then(r => r.json()).then(setCounterparties).catch(() => {})
+  }, [])
+
   const fetchTx = useCallback((from, to, p) => {
     setTxLoading(true)
     api(`/api/transactions?date_from=${from}&date_to=${to}&page=${p}&limit=${LIMIT}`)
@@ -312,6 +324,7 @@ export default function Dashboard() {
   useEffect(() => { fetchStats(appliedFrom, appliedTo) }, [appliedFrom, appliedTo, fetchStats])
   useEffect(() => { fetchTx(appliedFrom, appliedTo, page) }, [appliedFrom, appliedTo, page, fetchTx])
   useEffect(() => { fetchMonthly() }, [fetchMonthly])
+  useEffect(() => { fetchCounterparties() }, [fetchCounterparties])
 
   const applyFilter = () => { setPage(1); setAppliedFrom(dateFrom); setAppliedTo(dateTo) }
   const setQuick = (from, to) => { setDateFrom(from); setDateTo(to); setPage(1); setAppliedFrom(from); setAppliedTo(to) }
@@ -352,6 +365,7 @@ export default function Dashboard() {
               color={stats.estimated_profit_uah >= 0 ? theme.green : theme.red}
               sub={t.statProfitSub} />
             <StatCard label={t.statDeposit} value={fmtUsdt(stats.total_deposited_usdt)} color={theme.purple} />
+            <StatCard label={t.statBalance} value={fmtUsdt(stats.current_balance_usdt)} color={theme.accent} />
           </div>
           {/* Row 2: analytics */}
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 28 }}>
@@ -364,6 +378,9 @@ export default function Dashboard() {
             <StatCard small label={t.statProfitPct} value={fmtPct(stats.profit_pct)} color={stats.profit_pct > 0 ? theme.green : theme.red} />
             <StatCard small label={t.statBuyCount}  value={stats.buy_count} />
             <StatCard small label={t.statSellCount} value={stats.sell_count} />
+            <StatCard small label={t.statCancelRate}
+              value={stats.cancel_count > 0 ? `${stats.cancel_rate}% (${stats.cancel_count})` : '0%'}
+              color={stats.cancel_rate > 10 ? theme.red : stats.cancel_rate > 5 ? '#f59e0b' : theme.green} />
             {stats.total_withdrawn_usdt > 0 && (
               <StatCard small label={t.statWithdrawal} value={fmtUsdt(stats.total_withdrawn_usdt)} color={theme.purple} />
             )}
@@ -375,6 +392,48 @@ export default function Dashboard() {
 
       {/* ── Monthly analytics table ── */}
       <MonthlyTable data={monthly} onSalaryChange={fetchMonthly} onWithdrawalChange={fetchMonthly} theme={theme} t={t} lang={lang} />
+
+      {/* ── Counterparty analytics ── */}
+      {counterparties && counterparties.length > 0 && (
+        <div style={{ marginBottom: 32 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+            <h2 style={{ fontSize: 16, fontWeight: 600, color: theme.textMuted }}>{t.counterpartiesTitle}</h2>
+            <button onClick={() => setCpOpen(o => !o)} style={{
+              padding: '4px 10px', borderRadius: 6, border: `1px solid ${theme.border}`,
+              background: 'transparent', color: theme.textMuted, fontSize: 12, cursor: 'pointer',
+            }}>{cpOpen ? '▲ Згорнути' : '▼ Розгорнути'}</button>
+          </div>
+          {cpOpen && (
+            <div style={{ background: theme.surface, borderRadius: 12, border: `1px solid ${theme.border}`, overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr style={{ borderBottom: `1px solid ${theme.border}` }}>
+                    {['Контрагент', 'Угод', 'USDT', 'Сер. курс', 'Останній', 'Продав/Купив'].map(h => (
+                      <th key={h} style={{ padding: '10px 12px', textAlign: h === 'Контрагент' ? 'left' : 'right', color: theme.textDim, fontWeight: 500, whiteSpace: 'nowrap' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {counterparties.map((r, i) => (
+                    <tr key={r.counterparty} style={{ borderBottom: `1px solid ${theme.borderLight}`, background: i % 2 ? theme.surface2 : 'transparent' }}>
+                      <td style={{ padding: '8px 12px', color: theme.textMuted, fontWeight: 500 }}>{r.counterparty}</td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', color: theme.accent }}>{r.deal_count}</td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right' }}>{r.total_usdt.toLocaleString('uk-UA', { maximumFractionDigits: 2 })}</td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', color: theme.textDim }}>{r.avg_price ? r.avg_price.toFixed(2) + ' ₴' : '—'}</td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', color: theme.textFaint }}>{r.last_date || '—'}</td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', color: theme.textDim }}>
+                        <span style={{ color: theme.red }}>{r.sell_count}</span>
+                        {' / '}
+                        <span style={{ color: theme.green }}>{r.buy_count}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Transactions ── */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>

@@ -159,9 +159,9 @@ VALID_TYPES = {"sell_usdt", "buy_usdt", "deposit", "withdrawal", "cancel_order",
 async def upload_csv(file: UploadFile = File(...), db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)):
     content = await file.read()
-    text = content.decode("utf-8-sig")
-    reader = csv.DictReader(io.StringIO(text))
-    saved = 0; errors = []
+    csv_text = content.decode("utf-8-sig")
+    reader = csv.DictReader(io.StringIO(csv_text))
+    saved = 0; skipped = 0; errors = []
     for i, row in enumerate(reader, start=2):
         tx_type = row.get("type", "").strip()
         date_str = row.get("date", "").strip()
@@ -181,13 +181,13 @@ async def upload_csv(file: UploadFile = File(...), db: Session = Depends(get_db)
         exists = db.query(Transaction).filter(
             Transaction.user_id == current_user.id, Transaction.type == tx_type,
             Transaction.date == date, Transaction.usdt_amount == usdt).first()
-        if exists: continue
+        if exists: skipped += 1; continue
         db.add(Transaction(user_id=current_user.id, type=tx_type, date=date,
             usdt_amount=usdt, uah_amount=uah, price_per_usdt=price,
             counterparty=counterparty, screenshot_source="csv"))
         saved += 1
     db.commit()
-    return {"saved": saved, "errors": errors}
+    return {"saved": saved, "skipped": skipped, "errors": errors}
 
 
 # ── Helper: parse date range ───────────────────────────────────────────────
@@ -269,6 +269,32 @@ def get_stats(year: int = None, month: int = None,
 
     period = _period_label(date_from, date_to, year, month)
 
+    # Cancel rate (within date range)
+    cancel_count = cnt("cancel_order")
+    total_p2p = buy_count + sell_count + cancel_count
+    cancel_rate = round(cancel_count / total_p2p * 100, 1) if total_p2p else 0
+
+    # Current balance (all-time, ignores date filter)
+    at_deposit = float(db.query(func.sum(Transaction.usdt_amount))
+        .filter(Transaction.user_id == current_user.id, Transaction.type == "deposit")
+        .scalar() or 0)
+    at_buy_usdt = float(global_buy_usdt)
+    at_sell_usdt = float(db.query(func.sum(Transaction.usdt_amount))
+        .filter(Transaction.user_id == current_user.id, Transaction.type == "sell_usdt")
+        .scalar() or 0)
+    at_withdrawal = float(db.query(func.sum(Transaction.usdt_amount))
+        .filter(Transaction.user_id == current_user.id, Transaction.type == "withdrawal")
+        .scalar() or 0)
+    at_salary = float(db.query(func.sum(SalaryEntry.usdt_amount))
+        .filter(SalaryEntry.user_id == current_user.id)
+        .scalar() or 0)
+    at_manual_withdrawal = float(db.query(func.sum(WithdrawalEntry.usdt_amount))
+        .filter(WithdrawalEntry.user_id == current_user.id)
+        .scalar() or 0)
+    current_balance_usdt = round(
+        at_deposit + at_buy_usdt - at_sell_usdt - at_withdrawal - at_salary - at_manual_withdrawal, 4
+    )
+
     return {
         "period": period,
         "month": period,
@@ -286,6 +312,9 @@ def get_stats(year: int = None, month: int = None,
         "global_avg_buy_rate": round(global_avg_buy, 4),
         "estimated_profit_uah": profit_correct,
         "profit_pct": profit_pct,
+        "cancel_count": cancel_count,
+        "cancel_rate": cancel_rate,
+        "current_balance_usdt": current_balance_usdt,
     }
 
 
@@ -403,6 +432,8 @@ def monthly_analytics(db: Session = Depends(get_db), current_user: User = Depend
         profit = round(sell_uah - sell_usdt * global_avg_buy, 2) if global_avg_buy else 0
         profit_pct = round(profit / (sell_usdt * global_avg_buy) * 100, 2) \
             if (global_avg_buy and sell_usdt) else 0
+        roi_pct = round(profit / (total_in * global_avg_buy) * 100, 2) \
+            if (total_in and global_avg_buy) else 0
 
         result.append({
             "year": yr, "month": mo,
@@ -421,6 +452,7 @@ def monthly_analytics(db: Session = Depends(get_db), current_user: User = Depend
             "spread_ok": spread >= 0.90,
             "profit_uah": profit,
             "profit_pct": profit_pct,
+            "roi_pct": roi_pct,
         })
 
     # Totals row
@@ -439,10 +471,12 @@ def monthly_analytics(db: Session = Depends(get_db), current_user: User = Depend
         t_profit   = round(total_sell_uah - total_sell_usdt * global_avg_buy, 2) if global_avg_buy else 0
         t_profit_pct = round(t_profit / (total_sell_usdt * global_avg_buy) * 100, 2) \
             if (global_avg_buy and total_sell_usdt) else 0
+        t_roi_pct = round(t_profit / (total_buy_usdt + total_salary + total_deposit) / global_avg_buy * 100, 2) \
+            if ((total_buy_usdt + total_salary + total_deposit) and global_avg_buy) else 0
     else:
         total_buy_usdt = total_buy_uah = total_sell_usdt = total_sell_uah = 0
         total_salary = total_deposit = total_withdrawal = total_manual_withdrawal = 0
-        t_avg_buy = t_avg_sell = t_spread = t_profit = t_profit_pct = 0
+        t_avg_buy = t_avg_sell = t_spread = t_profit = t_profit_pct = t_roi_pct = 0
 
     return {
         "global_avg_buy_rate": round(global_avg_buy, 4),
@@ -456,6 +490,7 @@ def monthly_analytics(db: Session = Depends(get_db), current_user: User = Depend
             "total_in_usdt": round(total_buy_usdt + total_salary + total_deposit, 4),
             "avg_buy_rate": t_avg_buy, "avg_sell_rate": t_avg_sell,
             "spread": t_spread, "profit_uah": t_profit, "profit_pct": t_profit_pct,
+            "roi_pct": t_roi_pct,
         },
     }
 
@@ -538,6 +573,67 @@ def delete_withdrawal(entry_id: int, db: Session = Depends(get_db),
     if not entry: raise HTTPException(404, "Not found")
     db.delete(entry); db.commit()
     return {"ok": True}
+
+
+# ── Manual transaction ────────────────────────────────────────────────────
+
+class TransactionCreate(BaseModel):
+    type: str
+    date: str  # "YYYY-MM-DD HH:MM"
+    usdt_amount: Optional[float] = None
+    uah_amount: Optional[float] = None
+    price_per_usdt: Optional[float] = None
+    counterparty: Optional[str] = None
+
+
+@app.post("/api/transactions")
+def create_transaction(data: TransactionCreate, db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)):
+    if data.type not in VALID_TYPES:
+        raise HTTPException(400, f"Invalid type: {data.type}")
+    try:
+        date = datetime.strptime(data.date, "%Y-%m-%d %H:%M")
+    except ValueError:
+        raise HTTPException(400, "Bad date format, use YYYY-MM-DD HH:MM")
+    tx = Transaction(user_id=current_user.id, type=data.type, date=date,
+        usdt_amount=data.usdt_amount, uah_amount=data.uah_amount,
+        price_per_usdt=data.price_per_usdt, counterparty=data.counterparty,
+        screenshot_source="manual")
+    db.add(tx); db.commit(); db.refresh(tx)
+    return {"id": tx.id}
+
+
+# ── Counterparty analytics ────────────────────────────────────────────────
+
+@app.get("/api/analytics/counterparties")
+def get_counterparties(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    rows = db.execute(text("""
+        SELECT counterparty,
+               COUNT(*) as deal_count,
+               SUM(usdt_amount) as total_usdt,
+               AVG(price_per_usdt) as avg_price,
+               MAX(date) as last_date,
+               COUNT(CASE WHEN type='sell_usdt' THEN 1 END) as sell_count,
+               COUNT(CASE WHEN type='buy_usdt' THEN 1 END) as buy_count
+        FROM transactions
+        WHERE user_id = :uid AND counterparty IS NOT NULL AND counterparty != ''
+          AND type IN ('sell_usdt', 'buy_usdt')
+        GROUP BY counterparty
+        ORDER BY deal_count DESC
+        LIMIT 30
+    """), {"uid": str(current_user.id)}).fetchall()
+    return [
+        {
+            "counterparty": r[0],
+            "deal_count": int(r[1]),
+            "total_usdt": round(float(r[2] or 0), 2),
+            "avg_price": round(float(r[3] or 0), 4),
+            "last_date": str(r[4])[:10] if r[4] else None,
+            "sell_count": int(r[5]),
+            "buy_count": int(r[6]),
+        }
+        for r in rows
+    ]
 
 
 # ── Health ─────────────────────────────────────────────────────────────────

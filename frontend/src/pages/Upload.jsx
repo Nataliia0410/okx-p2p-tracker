@@ -1,6 +1,13 @@
 import React, { useState, useRef } from 'react'
 import { api } from '../api'
 
+const VALID_TYPES = ['sell_usdt', 'buy_usdt', 'deposit', 'withdrawal', 'cancel_order', 'internal', 'other']
+
+const now = () => {
+  const d = new Date()
+  return d.toISOString().slice(0, 16)
+}
+
 const CSV_TEMPLATE = `type,date,usdt_amount,uah_amount,price_per_usdt,counterparty
 sell_usdt,2026-06-08 07:07,21.64,1000,46.19,elektrod
 sell_usdt,2026-06-07 12:14,19.48,900,46.19,kiv***@gmail.com
@@ -15,6 +22,112 @@ function downloadTemplate() {
   a.download = 'okx_template.csv'
   a.click()
   URL.revokeObjectURL(url)
+}
+
+function ManualForm() {
+  const [form, setForm] = useState({
+    type: 'sell_usdt',
+    date: now(),
+    usdt_amount: '',
+    uah_amount: '',
+    price_per_usdt: '',
+    counterparty: '',
+  })
+  const [manualResult, setManualResult] = useState(null)
+  const [manualError, setManualError] = useState(null)
+  const [manualLoading, setManualLoading] = useState(false)
+
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  const submit = async () => {
+    setManualLoading(true)
+    setManualResult(null)
+    setManualError(null)
+    try {
+      const body = {
+        type: form.type,
+        date: form.date.replace('T', ' '),
+        usdt_amount: form.usdt_amount ? parseFloat(form.usdt_amount) : null,
+        uah_amount: form.uah_amount ? parseFloat(form.uah_amount) : null,
+        price_per_usdt: form.price_per_usdt ? parseFloat(form.price_per_usdt) : null,
+        counterparty: form.counterparty || null,
+      }
+      const r = await api('/api/transactions', { method: 'POST', body: JSON.stringify(body) })
+      const data = await r.json()
+      if (!r.ok) throw new Error(data.detail || 'Помилка')
+      setManualResult(`✅ Транзакцію додано (id: ${data.id})`)
+      setForm(f => ({ ...f, usdt_amount: '', uah_amount: '', price_per_usdt: '', counterparty: '' }))
+    } catch (e) {
+      setManualError(e.message)
+    } finally {
+      setManualLoading(false)
+    }
+  }
+
+  const inputStyle = {
+    width: '100%', padding: '8px 10px', borderRadius: 7,
+    border: '1px solid #334155', background: '#0f172a',
+    color: '#e2e8f0', fontSize: 13, outline: 'none', boxSizing: 'border-box',
+  }
+  const labelStyle = { fontSize: 11, color: '#64748b', marginBottom: 4, display: 'block' }
+
+  return (
+    <div style={{ background: '#1e293b', borderRadius: 12, padding: 24, marginTop: 24 }}>
+      <div style={{ fontWeight: 600, marginBottom: 16, color: '#e2e8f0', fontSize: 15 }}>
+        ✍️ Додати транзакцію вручну
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12, marginBottom: 16 }}>
+        <div>
+          <label style={labelStyle}>Тип</label>
+          <select value={form.type} onChange={e => set('type', e.target.value)} style={inputStyle}>
+            {VALID_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={labelStyle}>Дата</label>
+          <input type="datetime-local" value={form.date} onChange={e => set('date', e.target.value)} style={inputStyle} />
+        </div>
+        <div>
+          <label style={labelStyle}>USDT</label>
+          <input type="number" step="any" placeholder="0.00" value={form.usdt_amount} onChange={e => set('usdt_amount', e.target.value)} style={inputStyle} />
+        </div>
+        <div>
+          <label style={labelStyle}>UAH</label>
+          <input type="number" step="any" placeholder="0.00" value={form.uah_amount} onChange={e => set('uah_amount', e.target.value)} style={inputStyle} />
+        </div>
+        <div>
+          <label style={labelStyle}>Курс ₴/USDT</label>
+          <input type="number" step="any" placeholder="0.0000" value={form.price_per_usdt} onChange={e => set('price_per_usdt', e.target.value)} style={inputStyle} />
+        </div>
+        <div>
+          <label style={labelStyle}>Контрагент</label>
+          <input type="text" placeholder="ім'я" value={form.counterparty} onChange={e => set('counterparty', e.target.value)} style={inputStyle} />
+        </div>
+      </div>
+      <button
+        onClick={submit}
+        disabled={manualLoading}
+        style={{
+          padding: '9px 24px', borderRadius: 8, border: 'none',
+          background: manualLoading ? '#334155' : '#38bdf8',
+          color: manualLoading ? '#64748b' : '#0f1117',
+          fontWeight: 700, fontSize: 14, cursor: manualLoading ? 'not-allowed' : 'pointer',
+        }}
+      >
+        {manualLoading ? '⏳...' : 'Додати'}
+      </button>
+      {manualResult && (
+        <div style={{ marginTop: 10, padding: 10, background: '#0f2a1a', borderRadius: 7, border: '1px solid #166534', color: '#4ade80', fontSize: 13 }}>
+          {manualResult}
+        </div>
+      )}
+      {manualError && (
+        <div style={{ marginTop: 10, padding: 10, background: '#2a0f0f', borderRadius: 7, border: '1px solid #991b1b', color: '#f87171', fontSize: 13 }}>
+          ❌ {manualError}
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default function Upload() {
@@ -101,6 +214,11 @@ export default function Upload() {
               <div style={{ color: '#86efac', fontSize: 13, marginTop: 4 }}>
                 Збережено нових записів: <strong>{result.saved}</strong>
               </div>
+              {result.skipped > 0 && (
+                <div style={{ color: '#93c5fd', fontSize: 13, marginTop: 2 }}>
+                  Пропущено дублів: <strong>{result.skipped}</strong>
+                </div>
+              )}
               {result.errors?.length > 0 && (
                 <div style={{ marginTop: 8 }}>
                   <div style={{ color: '#fbbf24', fontSize: 12, marginBottom: 4 }}>⚠️ Пропущені рядки:</div>
@@ -157,6 +275,9 @@ export default function Upload() {
         </div>
 
       </div>
+
+      <ManualForm />
+
     </div>
   )
 }
