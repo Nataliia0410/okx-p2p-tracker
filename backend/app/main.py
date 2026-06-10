@@ -1,8 +1,8 @@
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import extract, func
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from datetime import datetime
 from typing import Optional
 import tempfile
@@ -12,14 +12,20 @@ import csv
 import io
 
 from .database import engine, get_db, Base
-from .models import Card, Transaction, CardMonthlyUsage, Upload
+from .models import Card, Transaction, CardMonthlyUsage, Upload, User
 from .parser import parse_screenshot
+from .auth import (
+    hash_password, verify_password, create_access_token,
+    get_current_user,
+)
 
 app = FastAPI(title="OKX P2P Tracker")
+
 
 @app.on_event("startup")
 def startup():
     Base.metadata.create_all(bind=engine)
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -29,12 +35,46 @@ app.add_middleware(
 )
 
 
+# ── Auth ───────────────────────────────────────────────────────────────────
+
+class AuthPayload(BaseModel):
+    email: str
+    password: str
+
+
+@app.post("/api/auth/register", status_code=status.HTTP_201_CREATED)
+def register(data: AuthPayload, db: Session = Depends(get_db)):
+    if db.query(User).filter(User.email == data.email).first():
+        raise HTTPException(status_code=400, detail="Email already registered")
+    user = User(email=data.email, hashed_password=hash_password(data.password))
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    token = create_access_token(str(user.id), user.email)
+    return {"access_token": token, "token_type": "bearer", "email": user.email}
+
+
+@app.post("/api/auth/login")
+def login(data: AuthPayload, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == data.email).first()
+    if not user or not verify_password(data.password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    token = create_access_token(str(user.id), user.email)
+    return {"access_token": token, "token_type": "bearer", "email": user.email}
+
+
+@app.get("/api/auth/me")
+def me(current_user: User = Depends(get_current_user)):
+    return {"id": str(current_user.id), "email": current_user.email}
+
+
 # ── Cards ──────────────────────────────────────────────────────────────────
 
 class CardCreate(BaseModel):
     name: str
     bank: Optional[str] = None
     monthly_limit: float
+
 
 class CardUpdate(BaseModel):
     name: Optional[str] = None
@@ -44,9 +84,12 @@ class CardUpdate(BaseModel):
 
 
 @app.get("/api/cards")
-def get_cards(db: Session = Depends(get_db)):
+def get_cards(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     now = datetime.now()
-    cards = db.query(Card).filter(Card.is_active == True).all()
+    cards = db.query(Card).filter(Card.user_id == current_user.id, Card.is_active == True).all()
     result = []
     for card in cards:
         usage = db.query(CardMonthlyUsage).filter(
@@ -68,8 +111,12 @@ def get_cards(db: Session = Depends(get_db)):
 
 
 @app.post("/api/cards")
-def create_card(data: CardCreate, db: Session = Depends(get_db)):
-    card = Card(name=data.name, bank=data.bank, monthly_limit=data.monthly_limit)
+def create_card(
+    data: CardCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    card = Card(user_id=current_user.id, name=data.name, bank=data.bank, monthly_limit=data.monthly_limit)
     db.add(card)
     db.commit()
     db.refresh(card)
@@ -77,8 +124,13 @@ def create_card(data: CardCreate, db: Session = Depends(get_db)):
 
 
 @app.put("/api/cards/{card_id}")
-def update_card(card_id: int, data: CardUpdate, db: Session = Depends(get_db)):
-    card = db.query(Card).filter(Card.id == card_id).first()
+def update_card(
+    card_id: int,
+    data: CardUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    card = db.query(Card).filter(Card.id == card_id, Card.user_id == current_user.id).first()
     if not card:
         raise HTTPException(404, "Card not found")
     if data.name is not None:
@@ -100,10 +152,14 @@ def update_card_usage(
     year: Optional[int] = None,
     month: Optional[int] = None,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     now = datetime.now()
     year = year or now.year
     month = month or now.month
+    card = db.query(Card).filter(Card.id == card_id, Card.user_id == current_user.id).first()
+    if not card:
+        raise HTTPException(404, "Card not found")
     usage = db.query(CardMonthlyUsage).filter(
         CardMonthlyUsage.card_id == card_id,
         CardMonthlyUsage.year == year,
@@ -118,89 +174,25 @@ def update_card_usage(
     return {"ok": True}
 
 
-# ── Screenshot upload & parsing ────────────────────────────────────────────
-
-@app.post("/api/upload")
-async def upload_screenshot(
-    file: UploadFile = File(...),
-    screenshot_type: str = Form(...),  # 'history' or 'orders'
-    db: Session = Depends(get_db),
-):
-    if screenshot_type not in ("history", "orders"):
-        raise HTTPException(400, "screenshot_type must be 'history' or 'orders'")
-
-    suffix = os.path.splitext(file.filename)[1] or ".jpg"
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        shutil.copyfileobj(file.file, tmp)
-        tmp_path = tmp.name
-
-    try:
-        parsed = parse_screenshot(tmp_path, screenshot_type)
-    except Exception as e:
-        raise HTTPException(500, f"Parsing failed: {e}")
-    finally:
-        os.unlink(tmp_path)
-
-    saved = 0
-    for item in parsed:
-        try:
-            date = datetime.strptime(item["date"], "%Y-%m-%d %H:%M")
-        except Exception:
-            continue
-
-        if screenshot_type == "history":
-            tx = Transaction(
-                type=item.get("type", "other"),
-                date=date,
-                usdt_amount=item.get("usdt_amount"),
-                screenshot_source="history",
-                raw_text=str(item),
-            )
-        else:
-            if item.get("status") == "cancelled":
-                continue
-            tx = Transaction(
-                type=item.get("type", "other"),
-                date=date,
-                usdt_amount=item.get("usdt_amount"),
-                uah_amount=item.get("uah_amount"),
-                price_per_usdt=item.get("price_per_usdt"),
-                counterparty=item.get("counterparty"),
-                screenshot_source="orders",
-                raw_text=str(item),
-            )
-
-        # Skip duplicates by checking same type+date+usdt_amount
-        exists = db.query(Transaction).filter(
-            Transaction.type == tx.type,
-            Transaction.date == tx.date,
-            Transaction.usdt_amount == tx.usdt_amount,
-        ).first()
-        if not exists:
-            db.add(tx)
-            saved += 1
-
-    upload = Upload(filename=file.filename, screenshot_type=screenshot_type, parsed_count=saved)
-    db.add(upload)
-    db.commit()
-
-    return {"parsed": len(parsed), "saved": saved}
-
-
 # ── CSV upload ────────────────────────────────────────────────────────────
 
 VALID_TYPES = {"sell_usdt", "buy_usdt", "deposit", "withdrawal", "cancel_order", "internal", "other"}
 
+
 @app.post("/api/upload-csv")
-async def upload_csv(file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def upload_csv(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     content = await file.read()
-    text = content.decode("utf-8-sig")  # handle BOM from Excel
+    text = content.decode("utf-8-sig")
     reader = csv.DictReader(io.StringIO(text))
 
     saved = 0
     errors = []
 
-    for i, row in enumerate(reader, start=2):  # row 1 is header
+    for i, row in enumerate(reader, start=2):
         tx_type = row.get("type", "").strip()
         date_str = row.get("date", "").strip()
         usdt_raw = row.get("usdt_amount", "").strip()
@@ -222,8 +214,8 @@ async def upload_csv(file: UploadFile = File(...), db: Session = Depends(get_db)
         uah = float(uah_raw) if uah_raw else None
         price = float(price_raw) if price_raw else None
 
-        # Deduplicate: same type + date + usdt_amount
         exists = db.query(Transaction).filter(
+            Transaction.user_id == current_user.id,
             Transaction.type == tx_type,
             Transaction.date == date,
             Transaction.usdt_amount == usdt,
@@ -232,6 +224,7 @@ async def upload_csv(file: UploadFile = File(...), db: Session = Depends(get_db)
             continue
 
         tx = Transaction(
+            user_id=current_user.id,
             type=tx_type,
             date=date,
             usdt_amount=usdt,
@@ -250,13 +243,19 @@ async def upload_csv(file: UploadFile = File(...), db: Session = Depends(get_db)
 # ── Dashboard stats ────────────────────────────────────────────────────────
 
 @app.get("/api/stats")
-def get_stats(year: int = None, month: int = None, db: Session = Depends(get_db)):
+def get_stats(
+    year: int = None,
+    month: int = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     now = datetime.now()
     year = year or now.year
     month = month or now.month
 
     def filter_month(q):
         return q.filter(
+            Transaction.user_id == current_user.id,
             extract("year", Transaction.date) == year,
             extract("month", Transaction.date) == month,
         )
@@ -273,15 +272,22 @@ def get_stats(year: int = None, month: int = None, db: Session = Depends(get_db)
         db.query(func.sum(Transaction.usdt_amount)).filter(Transaction.type == "deposit")
     ).scalar() or 0
 
-    # Estimate buy cost: need avg price — get from orders
     buy_orders = filter_month(
-        db.query(func.sum(Transaction.uah_amount)).filter(Transaction.type == "buy_usdt", Transaction.uah_amount != None)
+        db.query(func.sum(Transaction.uah_amount)).filter(
+            Transaction.type == "buy_usdt",
+            Transaction.uah_amount != None,
+        )
     ).scalar() or 0
 
     profit = float(sells) - float(buy_orders)
 
-    # Recent transactions
-    recent = db.query(Transaction).order_by(Transaction.date.desc()).limit(20).all()
+    recent = (
+        db.query(Transaction)
+        .filter(Transaction.user_id == current_user.id)
+        .order_by(Transaction.date.desc())
+        .limit(20)
+        .all()
+    )
     recent_list = [
         {
             "id": t.id,

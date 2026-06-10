@@ -1,21 +1,38 @@
 from sqlalchemy import Column, Integer, String, Numeric, Boolean, DateTime, ForeignKey, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
+import uuid
 from .database import Base
+
+
+class User(Base):
+    __tablename__ = "users"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    email = Column(String(255), unique=True, nullable=False)
+    hashed_password = Column(Text, nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+    transactions = relationship("Transaction", back_populates="user")
+    cards = relationship("Card", back_populates="user")
+
 
 class Card(Base):
     __tablename__ = "cards"
     id = Column(Integer, primary_key=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     name = Column(String(100), nullable=False)
     bank = Column(String(100))
     monthly_limit = Column(Numeric(12, 2), nullable=False)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, server_default=func.now())
     monthly_usages = relationship("CardMonthlyUsage", back_populates="card")
+    user = relationship("User", back_populates="cards")
+
 
 class Transaction(Base):
     __tablename__ = "transactions"
     id = Column(Integer, primary_key=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     type = Column(String(50), nullable=False)
     date = Column(DateTime, nullable=False)
     usdt_amount = Column(Numeric(12, 4))
@@ -26,6 +43,8 @@ class Transaction(Base):
     screenshot_source = Column(String(50))
     raw_text = Column(Text)
     created_at = Column(DateTime, server_default=func.now())
+    user = relationship("User", back_populates="transactions")
+
 
 class CardMonthlyUsage(Base):
     __tablename__ = "card_monthly_usage"
@@ -36,6 +55,7 @@ class CardMonthlyUsage(Base):
     month = Column(Integer, nullable=False)
     used_amount = Column(Numeric(12, 2), default=0)
     card = relationship("Card", back_populates="monthly_usages")
+
 
 class Upload(Base):
     __tablename__ = "uploads"

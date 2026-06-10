@@ -35,7 +35,10 @@
       "Bash(gh run *)",
       "Bash(curl -s -o /dev/null -w \" | frontend: %{http_code}\" https://okx-p2p-frontend.vercel.app)",
       "WebFetch(domain:www.okx.com)",
-      "mcp__584fa39e-73a5-4a17-b39b-8291ec1e1c4d__web_search_exa"
+      "mcp__584fa39e-73a5-4a17-b39b-8291ec1e1c4d__web_search_exa",
+      "Bash(pip install *)",
+      "Bash(pip3 install *)",
+      "Bash(python3 migrate.py)"
     ]
   }
 }
