@@ -2,7 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form, sta
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import extract, func
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 from datetime import datetime
 from typing import Optional
 import tempfile
@@ -12,12 +12,9 @@ import csv
 import io
 
 from .database import engine, get_db, Base
-from .models import Card, Transaction, CardMonthlyUsage, Upload, User
+from .models import Card, Transaction, CardMonthlyUsage, Upload, User, SalaryEntry
 from .parser import parse_screenshot
-from .auth import (
-    hash_password, verify_password, create_access_token,
-    get_current_user,
-)
+from .auth import hash_password, verify_password, create_access_token, get_current_user
 
 app = FastAPI(title="OKX P2P Tracker")
 
@@ -84,10 +81,7 @@ class CardUpdate(BaseModel):
 
 
 @app.get("/api/cards")
-def get_cards(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
+def get_cards(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     now = datetime.now()
     cards = db.query(Card).filter(Card.user_id == current_user.id, Card.is_active == True).all()
     result = []
@@ -99,11 +93,8 @@ def get_cards(
         ).first()
         used = float(usage.used_amount) if usage else 0.0
         result.append({
-            "id": card.id,
-            "name": card.name,
-            "bank": card.bank,
-            "monthly_limit": float(card.monthly_limit),
-            "used_amount": used,
+            "id": card.id, "name": card.name, "bank": card.bank,
+            "monthly_limit": float(card.monthly_limit), "used_amount": used,
             "remaining": float(card.monthly_limit) - used,
             "percent": round(used / float(card.monthly_limit) * 100, 1) if card.monthly_limit else 0,
         })
@@ -111,60 +102,35 @@ def get_cards(
 
 
 @app.post("/api/cards")
-def create_card(
-    data: CardCreate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
+def create_card(data: CardCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     card = Card(user_id=current_user.id, name=data.name, bank=data.bank, monthly_limit=data.monthly_limit)
-    db.add(card)
-    db.commit()
-    db.refresh(card)
+    db.add(card); db.commit(); db.refresh(card)
     return {"id": card.id, "name": card.name}
 
 
 @app.put("/api/cards/{card_id}")
-def update_card(
-    card_id: int,
-    data: CardUpdate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
+def update_card(card_id: int, data: CardUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     card = db.query(Card).filter(Card.id == card_id, Card.user_id == current_user.id).first()
     if not card:
         raise HTTPException(404, "Card not found")
-    if data.name is not None:
-        card.name = data.name
-    if data.bank is not None:
-        card.bank = data.bank
-    if data.monthly_limit is not None:
-        card.monthly_limit = data.monthly_limit
-    if data.is_active is not None:
-        card.is_active = data.is_active
+    if data.name is not None: card.name = data.name
+    if data.bank is not None: card.bank = data.bank
+    if data.monthly_limit is not None: card.monthly_limit = data.monthly_limit
+    if data.is_active is not None: card.is_active = data.is_active
     db.commit()
     return {"ok": True}
 
 
 @app.put("/api/cards/{card_id}/usage")
-def update_card_usage(
-    card_id: int,
-    amount: float,
-    year: Optional[int] = None,
-    month: Optional[int] = None,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
+def update_card_usage(card_id: int, amount: float, year: Optional[int] = None,
+    month: Optional[int] = None, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     now = datetime.now()
-    year = year or now.year
-    month = month or now.month
+    year = year or now.year; month = month or now.month
     card = db.query(Card).filter(Card.id == card_id, Card.user_id == current_user.id).first()
-    if not card:
-        raise HTTPException(404, "Card not found")
+    if not card: raise HTTPException(404, "Card not found")
     usage = db.query(CardMonthlyUsage).filter(
         CardMonthlyUsage.card_id == card_id,
-        CardMonthlyUsage.year == year,
-        CardMonthlyUsage.month == month,
-    ).first()
+        CardMonthlyUsage.year == year, CardMonthlyUsage.month == month).first()
     if usage:
         usage.used_amount = amount
     else:
@@ -180,18 +146,12 @@ VALID_TYPES = {"sell_usdt", "buy_usdt", "deposit", "withdrawal", "cancel_order",
 
 
 @app.post("/api/upload-csv")
-async def upload_csv(
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
+async def upload_csv(file: UploadFile = File(...), db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)):
     content = await file.read()
     text = content.decode("utf-8-sig")
     reader = csv.DictReader(io.StringIO(text))
-
-    saved = 0
-    errors = []
-
+    saved = 0; errors = []
     for i, row in enumerate(reader, start=2):
         tx_type = row.get("type", "").strip()
         date_str = row.get("date", "").strip()
@@ -199,130 +159,135 @@ async def upload_csv(
         uah_raw = row.get("uah_amount", "").strip()
         price_raw = row.get("price_per_usdt", "").strip()
         counterparty = row.get("counterparty", "").strip() or None
-
         if tx_type not in VALID_TYPES:
-            errors.append(f"Row {i}: unknown type '{tx_type}'")
-            continue
-
+            errors.append(f"Row {i}: unknown type '{tx_type}'"); continue
         try:
             date = datetime.strptime(date_str, "%Y-%m-%d %H:%M")
         except ValueError:
-            errors.append(f"Row {i}: bad date '{date_str}' (expected YYYY-MM-DD HH:MM)")
-            continue
-
+            errors.append(f"Row {i}: bad date '{date_str}'"); continue
         usdt = float(usdt_raw) if usdt_raw else None
         uah = float(uah_raw) if uah_raw else None
         price = float(price_raw) if price_raw else None
-
         exists = db.query(Transaction).filter(
-            Transaction.user_id == current_user.id,
-            Transaction.type == tx_type,
-            Transaction.date == date,
-            Transaction.usdt_amount == usdt,
-        ).first()
-        if exists:
-            continue
-
-        tx = Transaction(
-            user_id=current_user.id,
-            type=tx_type,
-            date=date,
-            usdt_amount=usdt,
-            uah_amount=uah,
-            price_per_usdt=price,
-            counterparty=counterparty,
-            screenshot_source="csv",
-        )
-        db.add(tx)
+            Transaction.user_id == current_user.id, Transaction.type == tx_type,
+            Transaction.date == date, Transaction.usdt_amount == usdt).first()
+        if exists: continue
+        db.add(Transaction(user_id=current_user.id, type=tx_type, date=date,
+            usdt_amount=usdt, uah_amount=uah, price_per_usdt=price,
+            counterparty=counterparty, screenshot_source="csv"))
         saved += 1
-
     db.commit()
     return {"saved": saved, "errors": errors}
 
 
-# ── Dashboard stats ────────────────────────────────────────────────────────
+# ── Helper: parse date range ───────────────────────────────────────────────
+
+def _date_range(date_from: Optional[str], date_to: Optional[str], year: Optional[int], month: Optional[int]):
+    """Returns (df, dt) datetime objects for filtering."""
+    now = datetime.now()
+    if date_from and date_to:
+        try:
+            df = datetime.strptime(date_from, "%Y-%m-%d")
+            dt = datetime.strptime(date_to, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
+            return df, dt
+        except ValueError:
+            pass
+    y = year or now.year
+    m = month or now.month
+    from calendar import monthrange
+    last_day = monthrange(y, m)[1]
+    return datetime(y, m, 1), datetime(y, m, last_day, 23, 59, 59)
+
+
+def _apply_range(q, df, dt):
+    return q.filter(Transaction.date >= df, Transaction.date <= dt)
+
+
+def _period_label(date_from, date_to, year, month):
+    now = datetime.now()
+    if date_from and date_to:
+        return f"{date_from} – {date_to}"
+    y = year or now.year
+    m = month or now.month
+    return f"{y}-{m:02d}"
+
+
+# ── Stats ─────────────────────────────────────────────────────────────────
 
 @app.get("/api/stats")
-def get_stats(
-    year: int = None,
-    month: int = None,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    now = datetime.now()
+def get_stats(year: int = None, month: int = None,
+    date_from: Optional[str] = None, date_to: Optional[str] = None,
+    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
 
-    def apply_date_filter(q):
-        q = q.filter(Transaction.user_id == current_user.id)
-        if date_from and date_to:
-            try:
-                df = datetime.strptime(date_from, "%Y-%m-%d")
-                dt = datetime.strptime(date_to, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
-                q = q.filter(Transaction.date >= df, Transaction.date <= dt)
-            except ValueError:
-                pass
-        else:
-            y = year or now.year
-            m = month or now.month
-            q = q.filter(
-                extract("year", Transaction.date) == y,
-                extract("month", Transaction.date) == m,
-            )
-        return q
+    df, dt = _date_range(date_from, date_to, year, month)
 
-    sells = apply_date_filter(
-        db.query(func.sum(Transaction.uah_amount)).filter(Transaction.type == "sell_usdt")
-    ).scalar() or 0
+    base = db.query(Transaction).filter(Transaction.user_id == current_user.id)
 
-    buys = apply_date_filter(
-        db.query(func.sum(Transaction.usdt_amount)).filter(Transaction.type == "buy_usdt")
-    ).scalar() or 0
+    def agg(tx_type, col):
+        return _apply_range(base.filter(Transaction.type == tx_type), df, dt)\
+            .with_entities(func.sum(col)).scalar() or 0
 
-    deposits = apply_date_filter(
-        db.query(func.sum(Transaction.usdt_amount)).filter(Transaction.type == "deposit")
-    ).scalar() or 0
+    def cnt(tx_type):
+        return _apply_range(base.filter(Transaction.type == tx_type), df, dt).count()
 
-    buy_orders = apply_date_filter(
-        db.query(func.sum(Transaction.uah_amount)).filter(
-            Transaction.type == "buy_usdt",
-            Transaction.uah_amount.isnot(None),
-        )
-    ).scalar() or 0
+    sell_uah = float(agg("sell_usdt", Transaction.uah_amount))
+    sell_usdt = float(agg("sell_usdt", Transaction.usdt_amount))
+    buy_uah = float(agg("buy_usdt", Transaction.uah_amount))
+    buy_usdt = float(agg("buy_usdt", Transaction.usdt_amount))
+    deposit_usdt = float(agg("deposit", Transaction.usdt_amount))
+    withdrawal_usdt = float(agg("withdrawal", Transaction.usdt_amount))
+    buy_count = cnt("buy_usdt")
+    sell_count = cnt("sell_usdt")
 
-    profit = float(sells) - float(buy_orders)
+    avg_buy = round(buy_uah / buy_usdt, 4) if buy_usdt else 0
+    avg_sell = round(sell_uah / sell_usdt, 4) if sell_usdt else 0
+    spread = round(avg_sell - avg_buy, 4) if (avg_buy and avg_sell) else 0
 
-    # Period label for display
-    if date_from and date_to:
-        period = f"{date_from} – {date_to}"
-    else:
-        y = year or now.year
-        m = month or now.month
-        period = f"{y}-{m:02d}"
+    # Global avg buy rate (all-time, not filtered) for correct profit
+    global_buy_uah = db.query(func.sum(Transaction.uah_amount))\
+        .filter(Transaction.user_id == current_user.id, Transaction.type == "buy_usdt")\
+        .scalar() or 0
+    global_buy_usdt = db.query(func.sum(Transaction.usdt_amount))\
+        .filter(Transaction.user_id == current_user.id, Transaction.type == "buy_usdt")\
+        .scalar() or 0
+    global_avg_buy = float(global_buy_uah) / float(global_buy_usdt) if global_buy_usdt else 0
+
+    # Correct profit: sell_revenue - (sold_usdt × global_avg_buy_rate)
+    profit_correct = round(sell_uah - sell_usdt * global_avg_buy, 2) if global_avg_buy else 0
+    profit_pct = round(profit_correct / (sell_usdt * global_avg_buy) * 100, 2) \
+        if (global_avg_buy and sell_usdt) else 0
+
+    period = _period_label(date_from, date_to, year, month)
 
     return {
         "period": period,
-        "month": period,  # backwards compat
-        "total_sold_uah": float(sells),
-        "total_bought_usdt": float(buys),
-        "total_bought_uah": float(buy_orders),
-        "total_deposited_usdt": float(deposits),
-        "estimated_profit_uah": profit,
+        "month": period,
+        "total_sold_uah": sell_uah,
+        "total_bought_uah": buy_uah,
+        "total_sold_usdt": sell_usdt,
+        "total_bought_usdt": buy_usdt,
+        "total_deposited_usdt": deposit_usdt,
+        "total_withdrawn_usdt": withdrawal_usdt,
+        "buy_count": buy_count,
+        "sell_count": sell_count,
+        "avg_buy_rate": avg_buy,
+        "avg_sell_rate": avg_sell,
+        "spread": spread,
+        "global_avg_buy_rate": round(global_avg_buy, 4),
+        "estimated_profit_uah": profit_correct,
+        "profit_pct": profit_pct,
     }
 
 
-@app.get("/api/transactions")
-def get_transactions(
-    page: int = 1,
-    limit: int = 20,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
-    tx_type: Optional[str] = None,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    q = db.query(Transaction).filter(Transaction.user_id == current_user.id)
+# ── Transactions (paginated) ───────────────────────────────────────────────
 
+@app.get("/api/transactions")
+def get_transactions(page: int = 1, limit: int = 20,
+    date_from: Optional[str] = None, date_to: Optional[str] = None,
+    tx_type: Optional[str] = None,
+    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+
+    q = db.query(Transaction).filter(Transaction.user_id == current_user.id)
     if date_from and date_to:
         try:
             df = datetime.strptime(date_from, "%Y-%m-%d")
@@ -330,34 +295,195 @@ def get_transactions(
             q = q.filter(Transaction.date >= df, Transaction.date <= dt)
         except ValueError:
             pass
-
     if tx_type:
         q = q.filter(Transaction.type == tx_type)
 
     total = q.count()
-    offset = (page - 1) * limit
-    rows = q.order_by(Transaction.date.desc()).offset(offset).limit(limit).all()
+    rows = q.order_by(Transaction.date.desc()).offset((page - 1) * limit).limit(limit).all()
 
     return {
-        "total": total,
-        "page": page,
-        "limit": limit,
-        "pages": (total + limit - 1) // limit,
-        "items": [
-            {
-                "id": t.id,
-                "type": t.type,
-                "date": t.date.isoformat(),
-                "usdt_amount": float(t.usdt_amount) if t.usdt_amount else None,
-                "uah_amount": float(t.uah_amount) if t.uah_amount else None,
-                "price_per_usdt": float(t.price_per_usdt) if t.price_per_usdt else None,
-                "counterparty": t.counterparty,
-                "source": t.screenshot_source,
-            }
-            for t in rows
-        ],
+        "total": total, "page": page, "limit": limit,
+        "pages": max(1, (total + limit - 1) // limit),
+        "items": [{
+            "id": t.id, "type": t.type, "date": t.date.isoformat(),
+            "usdt_amount": float(t.usdt_amount) if t.usdt_amount else None,
+            "uah_amount": float(t.uah_amount) if t.uah_amount else None,
+            "price_per_usdt": float(t.price_per_usdt) if t.price_per_usdt else None,
+            "counterparty": t.counterparty, "source": t.screenshot_source,
+        } for t in rows],
     }
 
+
+# ── Monthly analytics ──────────────────────────────────────────────────────
+
+@app.get("/api/analytics/monthly")
+def monthly_analytics(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Per-month breakdown: buy/sell USDT, rates, spread, profit, salary, withdrawal."""
+
+    # Global avg buy rate for correct profit calc
+    g_buy_uah = float(db.query(func.sum(Transaction.uah_amount))
+        .filter(Transaction.user_id == current_user.id, Transaction.type == "buy_usdt")
+        .scalar() or 0)
+    g_buy_usdt = float(db.query(func.sum(Transaction.usdt_amount))
+        .filter(Transaction.user_id == current_user.id, Transaction.type == "buy_usdt")
+        .scalar() or 0)
+    global_avg_buy = g_buy_uah / g_buy_usdt if g_buy_usdt else 0
+
+    # Get all months that have transactions
+    rows = db.execute(
+        """
+        SELECT
+            EXTRACT(YEAR  FROM date)::int AS yr,
+            EXTRACT(MONTH FROM date)::int AS mo,
+            SUM(CASE WHEN type='buy_usdt'  THEN usdt_amount ELSE 0 END) AS buy_usdt,
+            SUM(CASE WHEN type='buy_usdt'  THEN uah_amount  ELSE 0 END) AS buy_uah,
+            SUM(CASE WHEN type='sell_usdt' THEN usdt_amount ELSE 0 END) AS sell_usdt,
+            SUM(CASE WHEN type='sell_usdt' THEN uah_amount  ELSE 0 END) AS sell_uah,
+            SUM(CASE WHEN type='deposit'   THEN usdt_amount ELSE 0 END) AS deposit_usdt,
+            SUM(CASE WHEN type='withdrawal'THEN usdt_amount ELSE 0 END) AS withdrawal_usdt,
+            COUNT(CASE WHEN type='buy_usdt'  THEN 1 END) AS buy_count,
+            COUNT(CASE WHEN type='sell_usdt' THEN 1 END) AS sell_count
+        FROM transactions
+        WHERE user_id = :uid
+        GROUP BY yr, mo
+        ORDER BY yr, mo
+        """,
+        {"uid": str(current_user.id)},
+    ).fetchall()
+
+    # Salary entries for this user
+    salaries = {
+        (s.year, s.month): float(s.usdt_amount)
+        for s in db.query(SalaryEntry).filter(SalaryEntry.user_id == current_user.id).all()
+    }
+
+    MONTH_NAMES = {
+        "uk": ["Січень","Лютий","Березень","Квітень","Травень","Червень",
+               "Липень","Серпень","Вересень","Жовтень","Листопад","Грудень"],
+        "en": ["January","February","March","April","May","June",
+               "July","August","September","October","November","December"],
+        "ru": ["Январь","Февраль","Март","Апрель","Май","Июнь",
+               "Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"],
+    }
+
+    result = []
+    for r in rows:
+        yr, mo = r[0], r[1]
+        buy_usdt, buy_uah = float(r[2] or 0), float(r[3] or 0)
+        sell_usdt, sell_uah = float(r[4] or 0), float(r[5] or 0)
+        deposit_usdt = float(r[6] or 0)
+        withdrawal_usdt = float(r[7] or 0)
+        buy_count, sell_count = int(r[8] or 0), int(r[9] or 0)
+
+        salary = salaries.get((yr, mo), 0)
+        total_in = buy_usdt + salary + deposit_usdt
+
+        avg_buy = round(buy_uah / buy_usdt, 4) if buy_usdt else 0
+        avg_sell = round(sell_uah / sell_usdt, 4) if sell_usdt else 0
+        spread = round(avg_sell - avg_buy, 4) if (avg_buy and avg_sell) else 0
+
+        profit = round(sell_uah - sell_usdt * global_avg_buy, 2) if global_avg_buy else 0
+        profit_pct = round(profit / (sell_usdt * global_avg_buy) * 100, 2) \
+            if (global_avg_buy and sell_usdt) else 0
+
+        result.append({
+            "year": yr, "month": mo,
+            "month_names": {lang: f"{MONTH_NAMES[lang][mo-1]} {yr}" for lang in MONTH_NAMES},
+            "buy_usdt": buy_usdt, "buy_uah": buy_uah,
+            "sell_usdt": sell_usdt, "sell_uah": sell_uah,
+            "deposit_usdt": deposit_usdt,
+            "withdrawal_usdt": withdrawal_usdt,
+            "buy_count": buy_count, "sell_count": sell_count,
+            "salary_usdt": salary,
+            "total_in_usdt": round(total_in, 4),
+            "avg_buy_rate": avg_buy,
+            "avg_sell_rate": avg_sell,
+            "spread": spread,
+            "spread_ok": spread >= 0.90,
+            "profit_uah": profit,
+            "profit_pct": profit_pct,
+        })
+
+    # Totals row
+    if result:
+        total_buy_usdt = sum(r["buy_usdt"] for r in result)
+        total_buy_uah  = sum(r["buy_uah"]  for r in result)
+        total_sell_usdt = sum(r["sell_usdt"] for r in result)
+        total_sell_uah  = sum(r["sell_uah"]  for r in result)
+        total_salary    = sum(r["salary_usdt"] for r in result)
+        total_deposit   = sum(r["deposit_usdt"] for r in result)
+        total_withdrawal = sum(r["withdrawal_usdt"] for r in result)
+        t_avg_buy  = round(total_buy_uah / total_buy_usdt, 4) if total_buy_usdt else 0
+        t_avg_sell = round(total_sell_uah / total_sell_usdt, 4) if total_sell_usdt else 0
+        t_spread   = round(t_avg_sell - t_avg_buy, 4) if (t_avg_buy and t_avg_sell) else 0
+        t_profit   = round(total_sell_uah - total_sell_usdt * global_avg_buy, 2) if global_avg_buy else 0
+        t_profit_pct = round(t_profit / (total_sell_usdt * global_avg_buy) * 100, 2) \
+            if (global_avg_buy and total_sell_usdt) else 0
+    else:
+        total_buy_usdt = total_buy_uah = total_sell_usdt = total_sell_uah = 0
+        total_salary = total_deposit = total_withdrawal = 0
+        t_avg_buy = t_avg_sell = t_spread = t_profit = t_profit_pct = 0
+
+    return {
+        "global_avg_buy_rate": round(global_avg_buy, 4),
+        "rows": result,
+        "totals": {
+            "buy_usdt": total_buy_usdt, "buy_uah": total_buy_uah,
+            "sell_usdt": total_sell_usdt, "sell_uah": total_sell_uah,
+            "salary_usdt": total_salary, "deposit_usdt": total_deposit,
+            "withdrawal_usdt": total_withdrawal,
+            "total_in_usdt": round(total_buy_usdt + total_salary + total_deposit, 4),
+            "avg_buy_rate": t_avg_buy, "avg_sell_rate": t_avg_sell,
+            "spread": t_spread, "profit_uah": t_profit, "profit_pct": t_profit_pct,
+        },
+    }
+
+
+# ── Salary entries ─────────────────────────────────────────────────────────
+
+class SalaryPayload(BaseModel):
+    year: int
+    month: int
+    usdt_amount: float
+    note: Optional[str] = None
+
+
+@app.get("/api/salary")
+def get_salaries(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    rows = db.query(SalaryEntry).filter(SalaryEntry.user_id == current_user.id)\
+        .order_by(SalaryEntry.year, SalaryEntry.month).all()
+    return [{"id": r.id, "year": r.year, "month": r.month,
+             "usdt_amount": float(r.usdt_amount), "note": r.note} for r in rows]
+
+
+@app.put("/api/salary")
+def upsert_salary(data: SalaryPayload, db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)):
+    entry = db.query(SalaryEntry).filter(
+        SalaryEntry.user_id == current_user.id,
+        SalaryEntry.year == data.year, SalaryEntry.month == data.month).first()
+    if entry:
+        entry.usdt_amount = data.usdt_amount
+        entry.note = data.note
+    else:
+        entry = SalaryEntry(user_id=current_user.id, year=data.year, month=data.month,
+            usdt_amount=data.usdt_amount, note=data.note)
+        db.add(entry)
+    db.commit()
+    return {"ok": True}
+
+
+@app.delete("/api/salary/{entry_id}")
+def delete_salary(entry_id: int, db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)):
+    entry = db.query(SalaryEntry).filter(
+        SalaryEntry.id == entry_id, SalaryEntry.user_id == current_user.id).first()
+    if not entry: raise HTTPException(404, "Not found")
+    db.delete(entry); db.commit()
+    return {"ok": True}
+
+
+# ── Health ─────────────────────────────────────────────────────────────────
 
 @app.get("/api/health")
 def health():

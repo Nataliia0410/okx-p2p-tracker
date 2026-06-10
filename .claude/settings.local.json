@@ -40,7 +40,10 @@
       "Bash(pip3 install *)",
       "Bash(python3 migrate.py)",
       "Bash(curl -s -X POST https://okx-p2p-backend.vercel.app/api/auth/register -H 'Content-Type: application/json' -d '{\"email\":\"test_new_user@example.com\",\"password\":\"testpass123\"}')",
-      "Bash(vercel ls *)"
+      "Bash(vercel ls *)",
+      "Bash(vercel --prod)",
+      "Bash(curl -s -X POST https://okx-p2p-backend.vercel.app/api/auth/login -H 'Content-Type: application/json' -d '{\"email\":\"nataliiamakarchuk0410@gmail.com\",\"password\":\"makarchuk0410\"}')",
+      "Bash(python3 -c ' *)"
     ]
   }
 }
