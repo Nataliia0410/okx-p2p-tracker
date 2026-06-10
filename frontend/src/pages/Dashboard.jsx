@@ -295,8 +295,8 @@ export default function Dashboard() {
       {!statsLoading && stats ? (
         <>
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
-            <StatCard label={t.statSold}    value={fmtUah(stats.total_sold_uah)}    subValue={fmtUsdt(stats.total_sold_usdt)}   color={theme.green} />
-            <StatCard label={t.statBought}  value={fmtUah(stats.total_bought_uah)}  subValue={fmtUsdt(stats.total_bought_usdt)} color={theme.red} />
+            <StatCard label={t.statSold}    value={`${fmtUsdt(stats.total_sold_usdt)} → ${fmtUah(stats.total_sold_uah)}`}     color={theme.green} />
+            <StatCard label={t.statBought}  value={`${fmtUsdt(stats.total_bought_usdt)} → ${fmtUah(stats.total_bought_uah)}`}  color={theme.red} />
             <StatCard label={t.statProfit}  value={fmtUah(stats.estimated_profit_uah)}
               color={stats.estimated_profit_uah >= 0 ? theme.green : theme.red}
               sub={t.statProfitSub} />
