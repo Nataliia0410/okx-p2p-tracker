@@ -26,7 +26,7 @@ const fmtDate = iso => {
 }
 
 // ── Stat card ──────────────────────────────────────────────────────────────
-function StatCard({ label, value, sub, color, small }) {
+function StatCard({ label, value, subValue, sub, color, small }) {
   const { theme } = useTheme()
   return (
     <div style={{
@@ -37,6 +37,7 @@ function StatCard({ label, value, sub, color, small }) {
     }}>
       <div style={{ fontSize: 12, color: theme.textDim, marginBottom: 6 }}>{label}</div>
       <div style={{ fontSize: small ? 18 : 22, fontWeight: 700, color: color || theme.accent, lineHeight: 1.2 }}>{value}</div>
+      {subValue && <div style={{ fontSize: 13, color: theme.textDim, marginTop: 3, fontWeight: 500 }}>{subValue}</div>}
       {sub && <div style={{ fontSize: 11, color: theme.textFaint, marginTop: 4 }}>{sub}</div>}
     </div>
   )
@@ -294,8 +295,8 @@ export default function Dashboard() {
       {!statsLoading && stats ? (
         <>
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
-            <StatCard label={t.statSold}    value={fmtUah(stats.total_sold_uah)}    color={theme.green} />
-            <StatCard label={t.statBought}  value={fmtUah(stats.total_bought_uah)}  color={theme.red} />
+            <StatCard label={t.statSold}    value={fmtUah(stats.total_sold_uah)}    subValue={fmtUsdt(stats.total_sold_usdt)}   color={theme.green} />
+            <StatCard label={t.statBought}  value={fmtUah(stats.total_bought_uah)}  subValue={fmtUsdt(stats.total_bought_usdt)} color={theme.red} />
             <StatCard label={t.statProfit}  value={fmtUah(stats.estimated_profit_uah)}
               color={stats.estimated_profit_uah >= 0 ? theme.green : theme.red}
               sub={t.statProfitSub} />
