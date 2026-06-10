@@ -246,70 +246,116 @@ async def upload_csv(
 def get_stats(
     year: int = None,
     month: int = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     now = datetime.now()
-    year = year or now.year
-    month = month or now.month
 
-    def filter_month(q):
-        return q.filter(
-            Transaction.user_id == current_user.id,
-            extract("year", Transaction.date) == year,
-            extract("month", Transaction.date) == month,
-        )
+    def apply_date_filter(q):
+        q = q.filter(Transaction.user_id == current_user.id)
+        if date_from and date_to:
+            try:
+                df = datetime.strptime(date_from, "%Y-%m-%d")
+                dt = datetime.strptime(date_to, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
+                q = q.filter(Transaction.date >= df, Transaction.date <= dt)
+            except ValueError:
+                pass
+        else:
+            y = year or now.year
+            m = month or now.month
+            q = q.filter(
+                extract("year", Transaction.date) == y,
+                extract("month", Transaction.date) == m,
+            )
+        return q
 
-    sells = filter_month(
+    sells = apply_date_filter(
         db.query(func.sum(Transaction.uah_amount)).filter(Transaction.type == "sell_usdt")
     ).scalar() or 0
 
-    buys = filter_month(
+    buys = apply_date_filter(
         db.query(func.sum(Transaction.usdt_amount)).filter(Transaction.type == "buy_usdt")
     ).scalar() or 0
 
-    deposits = filter_month(
+    deposits = apply_date_filter(
         db.query(func.sum(Transaction.usdt_amount)).filter(Transaction.type == "deposit")
     ).scalar() or 0
 
-    buy_orders = filter_month(
+    buy_orders = apply_date_filter(
         db.query(func.sum(Transaction.uah_amount)).filter(
             Transaction.type == "buy_usdt",
-            Transaction.uah_amount != None,
+            Transaction.uah_amount.isnot(None),
         )
     ).scalar() or 0
 
     profit = float(sells) - float(buy_orders)
 
-    recent = (
-        db.query(Transaction)
-        .filter(Transaction.user_id == current_user.id)
-        .order_by(Transaction.date.desc())
-        .limit(20)
-        .all()
-    )
-    recent_list = [
-        {
-            "id": t.id,
-            "type": t.type,
-            "date": t.date.isoformat(),
-            "usdt_amount": float(t.usdt_amount) if t.usdt_amount else None,
-            "uah_amount": float(t.uah_amount) if t.uah_amount else None,
-            "price_per_usdt": float(t.price_per_usdt) if t.price_per_usdt else None,
-            "counterparty": t.counterparty,
-            "source": t.screenshot_source,
-        }
-        for t in recent
-    ]
+    # Period label for display
+    if date_from and date_to:
+        period = f"{date_from} – {date_to}"
+    else:
+        y = year or now.year
+        m = month or now.month
+        period = f"{y}-{m:02d}"
 
     return {
-        "month": f"{year}-{month:02d}",
+        "period": period,
+        "month": period,  # backwards compat
         "total_sold_uah": float(sells),
         "total_bought_usdt": float(buys),
         "total_bought_uah": float(buy_orders),
         "total_deposited_usdt": float(deposits),
         "estimated_profit_uah": profit,
-        "recent_transactions": recent_list,
+    }
+
+
+@app.get("/api/transactions")
+def get_transactions(
+    page: int = 1,
+    limit: int = 20,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    tx_type: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    q = db.query(Transaction).filter(Transaction.user_id == current_user.id)
+
+    if date_from and date_to:
+        try:
+            df = datetime.strptime(date_from, "%Y-%m-%d")
+            dt = datetime.strptime(date_to, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
+            q = q.filter(Transaction.date >= df, Transaction.date <= dt)
+        except ValueError:
+            pass
+
+    if tx_type:
+        q = q.filter(Transaction.type == tx_type)
+
+    total = q.count()
+    offset = (page - 1) * limit
+    rows = q.order_by(Transaction.date.desc()).offset(offset).limit(limit).all()
+
+    return {
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "pages": (total + limit - 1) // limit,
+        "items": [
+            {
+                "id": t.id,
+                "type": t.type,
+                "date": t.date.isoformat(),
+                "usdt_amount": float(t.usdt_amount) if t.usdt_amount else None,
+                "uah_amount": float(t.uah_amount) if t.uah_amount else None,
+                "price_per_usdt": float(t.price_per_usdt) if t.price_per_usdt else None,
+                "counterparty": t.counterparty,
+                "source": t.screenshot_source,
+            }
+            for t in rows
+        ],
     }
 
 
