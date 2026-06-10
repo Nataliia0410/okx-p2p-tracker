@@ -26,7 +26,12 @@
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(list\\(d.keys\\(\\)\\)\\)\")",
       "Bash(git commit *)",
       "Bash(python3 -m json.tool)",
-      "Bash(vercel env *)"
+      "Bash(vercel env *)",
+      "Bash(vercel --prod --yes --name okx-p2p-frontend)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" https://okx-p2p-frontend.vercel.app)",
+      "Bash(vercel git *)",
+      "Bash(cp -r frontend/.vercel .vercel)",
+      "Bash(cp -r .vercel_root .vercel)"
     ]
   }
 }
