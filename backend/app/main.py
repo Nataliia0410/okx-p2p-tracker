@@ -1,6 +1,5 @@
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from sqlalchemy import extract, func
 from pydantic import BaseModel
@@ -14,9 +13,11 @@ from .database import engine, get_db, Base
 from .models import Card, Transaction, CardMonthlyUsage, Upload
 from .parser import parse_screenshot
 
-Base.metadata.create_all(bind=engine)
-
 app = FastAPI(title="OKX P2P Tracker")
+
+@app.on_event("startup")
+def startup():
+    Base.metadata.create_all(bind=engine)
 
 app.add_middleware(
     CORSMiddleware,

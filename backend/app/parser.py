@@ -1,11 +1,12 @@
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 import json
 import os
 from pathlib import Path
 from PIL import Image
+import io
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-model = genai.GenerativeModel("gemini-1.5-flash")
+client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 HISTORY_PROMPT = """
 Ти парсиш скріншот з OKX, розділ "Історія" (фандинг-акаунт).
@@ -58,8 +59,21 @@ ORDERS_PROMPT = """
 
 def parse_screenshot(image_path: str, screenshot_type: str) -> list[dict]:
     prompt = HISTORY_PROMPT if screenshot_type == "history" else ORDERS_PROMPT
-    img = Image.open(image_path)
-    response = model.generate_content([prompt, img])
+
+    with open(image_path, "rb") as f:
+        image_bytes = f.read()
+
+    suffix = Path(image_path).suffix.lower()
+    mime = "image/png" if suffix == ".png" else "image/jpeg"
+
+    response = client.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=[
+            types.Part.from_bytes(data=image_bytes, mime_type=mime),
+            prompt,
+        ],
+    )
+
     text = response.text.strip()
     if text.startswith("```"):
         text = text.split("```")[1]

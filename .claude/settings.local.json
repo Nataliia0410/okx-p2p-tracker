@@ -12,7 +12,13 @@
       "Bash(git add *)",
       "Bash(git remote *)",
       "Bash(git push *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(gh auth *)",
+      "Bash(vercel --yes --name okx-p2p-backend)",
+      "Bash(vercel --prod --yes)",
+      "Bash(vercel logs *)",
+      "Bash(curl -s \"https://okx-p2p-backend.vercel.app/api/health\" -v)",
+      "Bash(vercel inspect *)"
     ]
   }
 }
