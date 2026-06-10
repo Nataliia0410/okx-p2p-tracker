@@ -19,7 +19,11 @@
       "Bash(vercel logs *)",
       "Bash(curl -s \"https://okx-p2p-backend.vercel.app/api/health\" -v)",
       "Bash(vercel inspect *)",
-      "Bash(curl -s https://okx-p2p-backend.vercel.app/api/health)"
+      "Bash(curl -s https://okx-p2p-backend.vercel.app/api/health)",
+      "Read(//Users/nataliiaksendzova/.local/share/com.vercel.cli/**)",
+      "Read(//Users/nataliiaksendzova/.config/vercel/**)",
+      "Read(//Users/nataliiaksendzova/**)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(list\\(d.keys\\(\\)\\)\\)\")"
     ]
   }
 }
