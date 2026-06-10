@@ -2,20 +2,36 @@ from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 import os
+import ssl
+import urllib.parse as _up
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# Strip channel_binding — not supported by psycopg2
-_url = os.getenv("DATABASE_URL", "")
-if "channel_binding" in _url:
-    import urllib.parse as _up
-    _parsed = _up.urlparse(_url)
-    _qs = {k: v for k, v in _up.parse_qsl(_parsed.query) if k != "channel_binding"}
-    _url = _parsed._replace(query=_up.urlencode(_qs)).geturl()
-DATABASE_URL = _url
+def _build_engine():
+    url = os.getenv("DATABASE_URL", "")
 
-engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+    # Parse and clean query params not supported by pg8000
+    parsed = _up.urlparse(url)
+    qs = dict(_up.parse_qsl(parsed.query))
+    qs.pop("channel_binding", None)
+    qs.pop("sslmode", None)
+
+    # Rebuild URL with pg8000 dialect
+    clean = parsed._replace(
+        scheme="postgresql+pg8000",
+        query=_up.urlencode(qs),
+    ).geturl()
+
+    # pg8000 needs ssl context passed via connect_args
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+
+    return create_engine(clean, connect_args={"ssl_context": ctx}, pool_pre_ping=True)
+
+
+engine = _build_engine()
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 

@@ -18,7 +18,8 @@
       "Bash(vercel --prod --yes)",
       "Bash(vercel logs *)",
       "Bash(curl -s \"https://okx-p2p-backend.vercel.app/api/health\" -v)",
-      "Bash(vercel inspect *)"
+      "Bash(vercel inspect *)",
+      "Bash(curl -s https://okx-p2p-backend.vercel.app/api/health)"
     ]
   }
 }
