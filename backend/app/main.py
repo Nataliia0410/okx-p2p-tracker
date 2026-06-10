@@ -121,6 +121,16 @@ def update_card(card_id: int, data: CardUpdate, db: Session = Depends(get_db), c
     return {"ok": True}
 
 
+@app.delete("/api/cards/{card_id}")
+def delete_card(card_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    card = db.query(Card).filter(Card.id == card_id, Card.user_id == current_user.id).first()
+    if not card:
+        raise HTTPException(404, "Card not found")
+    db.query(CardMonthlyUsage).filter(CardMonthlyUsage.card_id == card_id).delete()
+    db.delete(card); db.commit()
+    return {"ok": True}
+
+
 @app.put("/api/cards/{card_id}/usage")
 def update_card_usage(card_id: int, amount: float, year: Optional[int] = None,
     month: Optional[int] = None, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
