@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from sqlalchemy import extract, func
+from sqlalchemy import extract, func, text
 from pydantic import BaseModel
 from datetime import datetime
 from typing import Optional
@@ -331,7 +331,7 @@ def monthly_analytics(db: Session = Depends(get_db), current_user: User = Depend
 
     # Get all months that have transactions
     rows = db.execute(
-        """
+        text("""
         SELECT
             EXTRACT(YEAR  FROM date)::int AS yr,
             EXTRACT(MONTH FROM date)::int AS mo,
@@ -347,7 +347,7 @@ def monthly_analytics(db: Session = Depends(get_db), current_user: User = Depend
         WHERE user_id = :uid
         GROUP BY yr, mo
         ORDER BY yr, mo
-        """,
+        """),
         {"uid": str(current_user.id)},
     ).fetchall()
 
