@@ -441,6 +441,7 @@ def monthly_analytics(db: Session = Depends(get_db), current_user: User = Depend
             "buy_usdt": buy_usdt, "buy_uah": buy_uah,
             "sell_usdt": sell_usdt, "sell_uah": sell_uah,
             "deposit_usdt": deposit_usdt,
+            "tx_withdrawal_usdt": withdrawal_usdt,
             "withdrawal_usdt": total_withdrawal,
             "manual_withdrawal_usdt": manual_withdrawal,
             "buy_count": buy_count, "sell_count": sell_count,
@@ -464,6 +465,7 @@ def monthly_analytics(db: Session = Depends(get_db), current_user: User = Depend
         total_salary    = sum(r["salary_usdt"] for r in result)
         total_deposit   = sum(r["deposit_usdt"] for r in result)
         total_withdrawal = sum(r["withdrawal_usdt"] for r in result)
+        total_tx_withdrawal = sum(r["tx_withdrawal_usdt"] for r in result)
         total_manual_withdrawal = sum(r["manual_withdrawal_usdt"] for r in result)
         t_avg_buy  = round(total_buy_uah / total_buy_usdt, 4) if total_buy_usdt else 0
         t_avg_sell = round(total_sell_uah / total_sell_usdt, 4) if total_sell_usdt else 0
@@ -475,7 +477,7 @@ def monthly_analytics(db: Session = Depends(get_db), current_user: User = Depend
             if ((total_buy_usdt + total_salary + total_deposit) and global_avg_buy) else 0
     else:
         total_buy_usdt = total_buy_uah = total_sell_usdt = total_sell_uah = 0
-        total_salary = total_deposit = total_withdrawal = total_manual_withdrawal = 0
+        total_salary = total_deposit = total_withdrawal = total_tx_withdrawal = total_manual_withdrawal = 0
         t_avg_buy = t_avg_sell = t_spread = t_profit = t_profit_pct = t_roi_pct = 0
 
     return {
@@ -485,6 +487,7 @@ def monthly_analytics(db: Session = Depends(get_db), current_user: User = Depend
             "buy_usdt": total_buy_usdt, "buy_uah": total_buy_uah,
             "sell_usdt": total_sell_usdt, "sell_uah": total_sell_uah,
             "salary_usdt": total_salary, "deposit_usdt": total_deposit,
+            "tx_withdrawal_usdt": total_tx_withdrawal,
             "withdrawal_usdt": total_withdrawal,
             "manual_withdrawal_usdt": total_manual_withdrawal,
             "total_in_usdt": round(total_buy_usdt + total_salary + total_deposit, 4),

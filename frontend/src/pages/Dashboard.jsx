@@ -200,6 +200,7 @@ function MonthlyTable({ data, onSalaryChange, onWithdrawalChange, theme, t, lang
               <th style={thStyle}>{t.colBuyUsdt}</th>
               <th style={thStyle}>{t.colBuyUah}</th>
               <th style={thStyle}>{t.colSalary}</th>
+              <th style={thStyle}>{t.colDeposit}</th>
               <th style={thStyle}>{t.colTotalIn}</th>
               <th style={thStyle}>{t.colAvgBuy}</th>
               <th style={thStyle}>{t.colSellUsdt}</th>
@@ -209,6 +210,7 @@ function MonthlyTable({ data, onSalaryChange, onWithdrawalChange, theme, t, lang
               <th style={thStyle}>{t.colProfit}</th>
               <th style={thStyle}>{t.colProfitPct}</th>
               <th style={thStyle}>{t.colRoi}</th>
+              <th style={thStyle}>{t.colTxWithdrawal}</th>
               <th style={thStyle}>{t.colWithdrawal}</th>
               <th style={thStyle}>{t.colBuySellCount}</th>
             </tr>
@@ -225,6 +227,7 @@ function MonthlyTable({ data, onSalaryChange, onWithdrawalChange, theme, t, lang
                   <td style={{ ...td(), textAlign: 'right', padding: '9px 10px' }}>
                     <SalaryCell year={r.year} month={r.month} current={r.salary_usdt} onSaved={onSalaryChange} theme={theme} t={t} />
                   </td>
+                  <td style={td(theme.purple)}>{r.deposit_usdt > 0 ? r.deposit_usdt.toLocaleString('uk-UA',{maximumFractionDigits:2}) : '—'}</td>
                   <td style={td(theme.accent)}>{r.total_in_usdt > 0 ? r.total_in_usdt.toLocaleString('uk-UA',{maximumFractionDigits:2}) : '—'}</td>
                   <td style={td()}>{fmtRate(r.avg_buy_rate)}</td>
                   <td style={td()}>{r.sell_usdt > 0 ? r.sell_usdt.toLocaleString('uk-UA',{maximumFractionDigits:2}) : '—'}</td>
@@ -242,6 +245,7 @@ function MonthlyTable({ data, onSalaryChange, onWithdrawalChange, theme, t, lang
                   <td style={td(r.roi_pct > 0 ? theme.green : theme.textFaint)}>
                     {r.roi_pct ? fmtPct(r.roi_pct) : '—'}
                   </td>
+                  <td style={td(theme.red)}>{r.tx_withdrawal_usdt > 0 ? r.tx_withdrawal_usdt.toLocaleString('uk-UA',{maximumFractionDigits:2}) : '—'}</td>
                   <td style={{ ...td(), textAlign: 'right', padding: '9px 10px' }}>
                     <WithdrawalCell year={r.year} month={r.month} current={r.manual_withdrawal_usdt} onSaved={onWithdrawalChange} theme={theme} t={t} />
                   </td>
@@ -256,6 +260,7 @@ function MonthlyTable({ data, onSalaryChange, onWithdrawalChange, theme, t, lang
               <td style={td(theme.accent)}>{totals.buy_usdt.toLocaleString('uk-UA',{maximumFractionDigits:2})}</td>
               <td style={td()}>{fmtUah(totals.buy_uah)}</td>
               <td style={td(theme.purple)}>{totals.salary_usdt > 0 ? `${totals.salary_usdt} USDT` : '—'}</td>
+              <td style={td(theme.purple)}>{totals.deposit_usdt > 0 ? totals.deposit_usdt.toLocaleString('uk-UA',{maximumFractionDigits:2}) : '—'}</td>
               <td style={td(theme.accent)}>{totals.total_in_usdt.toLocaleString('uk-UA',{maximumFractionDigits:2})}</td>
               <td style={td()}>{fmtRate(totals.avg_buy_rate)}</td>
               <td style={td(theme.accent)}>{totals.sell_usdt.toLocaleString('uk-UA',{maximumFractionDigits:2})}</td>
@@ -267,6 +272,7 @@ function MonthlyTable({ data, onSalaryChange, onWithdrawalChange, theme, t, lang
               <td style={td(totals.profit_uah > 0 ? theme.green : theme.red)}>{fmtUah(totals.profit_uah)}</td>
               <td style={td(theme.green)}>{fmtPct(totals.profit_pct)}</td>
               <td style={td(totals.roi_pct > 0 ? theme.green : theme.textFaint)}>{totals.roi_pct ? fmtPct(totals.roi_pct) : '—'}</td>
+              <td style={td(theme.red)}>{totals.tx_withdrawal_usdt > 0 ? totals.tx_withdrawal_usdt.toLocaleString('uk-UA',{maximumFractionDigits:2}) : '—'}</td>
               <td style={td(theme.purple)}>{totals.manual_withdrawal_usdt > 0 ? `${totals.manual_withdrawal_usdt} USDT` : '—'}</td>
               <td style={td(theme.textDim)}>—</td>
             </tr>
