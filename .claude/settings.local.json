@@ -25,7 +25,8 @@
       "Read(//Users/nataliiaksendzova/**)",
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(list\\(d.keys\\(\\)\\)\\)\")",
       "Bash(git commit *)",
-      "Bash(python3 -m json.tool)"
+      "Bash(python3 -m json.tool)",
+      "Bash(vercel env *)"
     ]
   }
 }
