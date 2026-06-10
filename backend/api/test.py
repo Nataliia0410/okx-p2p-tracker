@@ -1,10 +1,10 @@
 from fastapi import FastAPI
 from mangum import Mangum
 
-_app = FastAPI()
+app_inner = FastAPI()
 
-@_app.get("/api/ping")
+@app_inner.get("/api/ping")
 def ping():
     return {"ok": True}
 
-handler = Mangum(_app, lifespan="off")
+handler = Mangum(app_inner, lifespan="off")
