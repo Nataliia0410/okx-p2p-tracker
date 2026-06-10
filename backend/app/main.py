@@ -12,7 +12,7 @@ import csv
 import io
 
 from .database import engine, get_db, Base
-from .models import Card, Transaction, CardMonthlyUsage, Upload, User, SalaryEntry
+from .models import Card, Transaction, CardMonthlyUsage, Upload, User, SalaryEntry, WithdrawalEntry
 from .parser import parse_screenshot
 from .auth import hash_password, verify_password, create_access_token, get_current_user
 
@@ -367,6 +367,12 @@ def monthly_analytics(db: Session = Depends(get_db), current_user: User = Depend
         for s in db.query(SalaryEntry).filter(SalaryEntry.user_id == current_user.id).all()
     }
 
+    # Manual withdrawal entries for this user
+    manual_withdrawals = {
+        (w.year, w.month): float(w.usdt_amount)
+        for w in db.query(WithdrawalEntry).filter(WithdrawalEntry.user_id == current_user.id).all()
+    }
+
     MONTH_NAMES = {
         "uk": ["Січень","Лютий","Березень","Квітень","Травень","Червень",
                "Липень","Серпень","Вересень","Жовтень","Листопад","Грудень"],
@@ -386,6 +392,8 @@ def monthly_analytics(db: Session = Depends(get_db), current_user: User = Depend
         buy_count, sell_count = int(r[8] or 0), int(r[9] or 0)
 
         salary = salaries.get((yr, mo), 0)
+        manual_withdrawal = manual_withdrawals.get((yr, mo), 0)
+        total_withdrawal = withdrawal_usdt + manual_withdrawal
         total_in = buy_usdt + salary + deposit_usdt
 
         avg_buy = round(buy_uah / buy_usdt, 4) if buy_usdt else 0
@@ -402,7 +410,8 @@ def monthly_analytics(db: Session = Depends(get_db), current_user: User = Depend
             "buy_usdt": buy_usdt, "buy_uah": buy_uah,
             "sell_usdt": sell_usdt, "sell_uah": sell_uah,
             "deposit_usdt": deposit_usdt,
-            "withdrawal_usdt": withdrawal_usdt,
+            "withdrawal_usdt": total_withdrawal,
+            "manual_withdrawal_usdt": manual_withdrawal,
             "buy_count": buy_count, "sell_count": sell_count,
             "salary_usdt": salary,
             "total_in_usdt": round(total_in, 4),
@@ -423,6 +432,7 @@ def monthly_analytics(db: Session = Depends(get_db), current_user: User = Depend
         total_salary    = sum(r["salary_usdt"] for r in result)
         total_deposit   = sum(r["deposit_usdt"] for r in result)
         total_withdrawal = sum(r["withdrawal_usdt"] for r in result)
+        total_manual_withdrawal = sum(r["manual_withdrawal_usdt"] for r in result)
         t_avg_buy  = round(total_buy_uah / total_buy_usdt, 4) if total_buy_usdt else 0
         t_avg_sell = round(total_sell_uah / total_sell_usdt, 4) if total_sell_usdt else 0
         t_spread   = round(t_avg_sell - t_avg_buy, 4) if (t_avg_buy and t_avg_sell) else 0
@@ -431,7 +441,7 @@ def monthly_analytics(db: Session = Depends(get_db), current_user: User = Depend
             if (global_avg_buy and total_sell_usdt) else 0
     else:
         total_buy_usdt = total_buy_uah = total_sell_usdt = total_sell_uah = 0
-        total_salary = total_deposit = total_withdrawal = 0
+        total_salary = total_deposit = total_withdrawal = total_manual_withdrawal = 0
         t_avg_buy = t_avg_sell = t_spread = t_profit = t_profit_pct = 0
 
     return {
@@ -442,6 +452,7 @@ def monthly_analytics(db: Session = Depends(get_db), current_user: User = Depend
             "sell_usdt": total_sell_usdt, "sell_uah": total_sell_uah,
             "salary_usdt": total_salary, "deposit_usdt": total_deposit,
             "withdrawal_usdt": total_withdrawal,
+            "manual_withdrawal_usdt": total_manual_withdrawal,
             "total_in_usdt": round(total_buy_usdt + total_salary + total_deposit, 4),
             "avg_buy_rate": t_avg_buy, "avg_sell_rate": t_avg_sell,
             "spread": t_spread, "profit_uah": t_profit, "profit_pct": t_profit_pct,
@@ -488,6 +499,42 @@ def delete_salary(entry_id: int, db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)):
     entry = db.query(SalaryEntry).filter(
         SalaryEntry.id == entry_id, SalaryEntry.user_id == current_user.id).first()
+    if not entry: raise HTTPException(404, "Not found")
+    db.delete(entry); db.commit()
+    return {"ok": True}
+
+
+# ── Withdrawal entries ─────────────────────────────────────────────────────
+
+class WithdrawalPayload(BaseModel):
+    year: int
+    month: int
+    usdt_amount: float
+    note: Optional[str] = None
+
+
+@app.put("/api/withdrawals")
+def upsert_withdrawal(data: WithdrawalPayload, db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)):
+    entry = db.query(WithdrawalEntry).filter(
+        WithdrawalEntry.user_id == current_user.id,
+        WithdrawalEntry.year == data.year, WithdrawalEntry.month == data.month).first()
+    if entry:
+        entry.usdt_amount = data.usdt_amount
+        entry.note = data.note
+    else:
+        entry = WithdrawalEntry(user_id=current_user.id, year=data.year, month=data.month,
+            usdt_amount=data.usdt_amount, note=data.note)
+        db.add(entry)
+    db.commit()
+    return {"ok": True}
+
+
+@app.delete("/api/withdrawals/{entry_id}")
+def delete_withdrawal(entry_id: int, db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)):
+    entry = db.query(WithdrawalEntry).filter(
+        WithdrawalEntry.id == entry_id, WithdrawalEntry.user_id == current_user.id).first()
     if not entry: raise HTTPException(404, "Not found")
     db.delete(entry); db.commit()
     return {"ok": True}

@@ -68,6 +68,17 @@ class SalaryEntry(Base):
     note = Column(String(255))
 
 
+class WithdrawalEntry(Base):
+    __tablename__ = "withdrawal_entries"
+    __table_args__ = (UniqueConstraint("user_id", "year", "month"),)
+    id = Column(Integer, primary_key=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    year = Column(Integer, nullable=False)
+    month = Column(Integer, nullable=False)
+    usdt_amount = Column(Numeric(12, 4), default=0)
+    note = Column(String(255))
+
+
 class Upload(Base):
     __tablename__ = "uploads"
     id = Column(Integer, primary_key=True)

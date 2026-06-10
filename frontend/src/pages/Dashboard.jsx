@@ -118,8 +118,57 @@ function SalaryCell({ year, month, current, onSaved, theme, t }) {
   )
 }
 
+// ── Withdrawal inline editor ───────────────────────────────────────────────
+function WithdrawalCell({ year, month, current, onSaved, theme, t }) {
+  const [editing, setEditing] = useState(false)
+  const [val, setVal] = useState(current)
+
+  const save = async () => {
+    await api('/api/withdrawals', {
+      method: 'PUT',
+      body: JSON.stringify({ year, month, usdt_amount: parseFloat(val) || 0 }),
+    })
+    setEditing(false)
+    onSaved()
+  }
+
+  if (editing) return (
+    <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+      <input
+        type="number" value={val} autoFocus
+        onChange={e => setVal(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }}
+        style={{
+          width: 80, padding: '3px 6px', borderRadius: 5,
+          border: `1px solid ${theme.accent}`, background: theme.inputBg,
+          color: theme.text, fontSize: 12,
+        }}
+      />
+      <button onClick={save} style={{
+        padding: '3px 8px', borderRadius: 5, border: 'none',
+        background: theme.accent, color: theme.accentText, fontSize: 11, cursor: 'pointer',
+      }}>{t.salarySave}</button>
+      <button onClick={() => setEditing(false)} style={{
+        padding: '3px 6px', borderRadius: 5,
+        border: `1px solid ${theme.border}`, background: 'transparent',
+        color: theme.textDim, fontSize: 11, cursor: 'pointer',
+      }}>✕</button>
+    </div>
+  )
+
+  return (
+    <span
+      onClick={() => { setVal(current); setEditing(true) }}
+      title={t.salaryEditTitle}
+      style={{ cursor: 'pointer', borderBottom: `1px dashed ${theme.textFaint}`, color: current > 0 ? theme.purple : theme.textFaint }}
+    >
+      {current > 0 ? `${current} USDT` : '— ✎'}
+    </span>
+  )
+}
+
 // ── Monthly analytics table ────────────────────────────────────────────────
-function MonthlyTable({ data, onSalaryChange, theme, t, lang }) {
+function MonthlyTable({ data, onSalaryChange, onWithdrawalChange, theme, t, lang }) {
   if (!data || !data.rows.length) return null
   const { rows, totals, global_avg_buy_rate } = data
 
@@ -189,7 +238,9 @@ function MonthlyTable({ data, onSalaryChange, theme, t, lang }) {
                   <td style={td(r.profit_pct > 0 ? theme.green : theme.textFaint)}>
                     {r.profit_pct ? fmtPct(r.profit_pct) : '—'}
                   </td>
-                  <td style={td()}>{r.withdrawal_usdt > 0 ? fmtUsdt(r.withdrawal_usdt) : '—'}</td>
+                  <td style={{ ...td(), textAlign: 'right', padding: '9px 10px' }}>
+                    <WithdrawalCell year={r.year} month={r.month} current={r.manual_withdrawal_usdt} onSaved={onWithdrawalChange} theme={theme} t={t} />
+                  </td>
                   <td style={td(theme.textDim)}>{r.buy_count}/{r.sell_count}</td>
                 </tr>
               )
@@ -211,7 +262,7 @@ function MonthlyTable({ data, onSalaryChange, theme, t, lang }) {
               </td>
               <td style={td(totals.profit_uah > 0 ? theme.green : theme.red)}>{fmtUah(totals.profit_uah)}</td>
               <td style={td(theme.green)}>{fmtPct(totals.profit_pct)}</td>
-              <td style={td()}>{totals.withdrawal_usdt > 0 ? fmtUsdt(totals.withdrawal_usdt) : '—'}</td>
+              <td style={td(theme.purple)}>{totals.manual_withdrawal_usdt > 0 ? `${totals.manual_withdrawal_usdt} USDT` : '—'}</td>
               <td style={td(theme.textDim)}>—</td>
             </tr>
           </tfoot>
@@ -323,7 +374,7 @@ export default function Dashboard() {
       )}
 
       {/* ── Monthly analytics table ── */}
-      <MonthlyTable data={monthly} onSalaryChange={fetchMonthly} theme={theme} t={t} lang={lang} />
+      <MonthlyTable data={monthly} onSalaryChange={fetchMonthly} onWithdrawalChange={fetchMonthly} theme={theme} t={t} lang={lang} />
 
       {/* ── Transactions ── */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
